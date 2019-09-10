@@ -56,6 +56,8 @@ CONFIG_SCHEMA = vol.Schema({
     }),
 }, extra=vol.ALLOW_EXTRA)
 
+ATTR_NODE_ID = 'node_id'
+
 
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Set up the remote_homeassistant component."""
@@ -242,6 +244,10 @@ class RemoteConnection(object):
                               for entity_id in entity_ids}
 
             event_data = copy.deepcopy(event_data)
+            if ATTR_NODE_ID in event_data:
+                event_data[ATTR_NODE_ID] = self._unprefix_value(event_data[ATTR_NODE_ID])
+            if ATTR_NODE_ID in event_data['service_data']:
+                event_data['service_data'][ATTR_NODE_ID] = self._unprefix_value(event_data['service_data'][ATTR_NODE_ID])
             event_data['service_data']['entity_id'] = list(entity_ids)
 
             # Remove service_call_id parameter - websocket API
@@ -265,7 +271,7 @@ class RemoteConnection(object):
 
 
         def state_changed(entity_id, state, attr):
-            """Publish remote state change on local instance."""
+            """Publish remote state change on local instance."""  
             if self._entity_prefix:
                 domain, object_id = split_entity_id(entity_id)
                 object_id = self._entity_prefix + object_id
@@ -274,6 +280,9 @@ class RemoteConnection(object):
             # Add local customization data
             if DATA_CUSTOMIZE in self._hass.data:
                 attr.update(self._hass.data[DATA_CUSTOMIZE].get(entity_id))
+
+            if ATTR_NODE_ID in attr:
+                attr[ATTR_NODE_ID] = self._prefix_value(attr[ATTR_NODE_ID])
 
             self._entities.add(entity_id)
             self._hass.states.async_set(entity_id, state, attr)
@@ -290,9 +299,14 @@ class RemoteConnection(object):
                 entity_id = message['event']['data']['entity_id']
                 state = message['event']['data']['new_state']['state']
                 attr = message['event']['data']['new_state']['attributes']
+                if ATTR_NODE_ID in attr:
+                    attr[ATTR_NODE_ID] = self._prefix_value(attr[ATTR_NODE_ID])
+
                 state_changed(entity_id, state, attr)
             else:
                 event = message['event']
+                if event['event_type'] == zwave.node_event and ATTR_NODE_ID in event['data']:
+                    event['data'][ATTR_NODE_ID] = self._prefix_value(event['data'][ATTR_NODE_ID])
                 self._hass.bus.async_fire(
                     event_type=event['event_type'],
                     event_data=event['data'],
@@ -306,6 +320,9 @@ class RemoteConnection(object):
                 state = entity['state']
                 attributes = entity['attributes']
 
+                if ATTR_NODE_ID in attributes:
+                    attributes[ATTR_NODE_ID] = self._prefix_value(attributes[ATTR_NODE_ID])
+
                 state_changed(entity_id, state, attributes)
 
         self._remove_listener = self._hass.bus.async_listen(EVENT_CALL_SERVICE, forward_event)
@@ -314,3 +331,14 @@ class RemoteConnection(object):
             await self._call(fire_event, 'subscribe_events', event_type=event)
 
         await self._call(got_states, 'get_states')
+
+    def _prefix_value(self, value):
+        if str(value).startswith(self._entity_prefix):
+            return value
+        return "{}_{}".format(self._entity_prefix, value)
+
+    def _unprefix_value(self, value):
+        if isinstance(value, str) and str(value).startswith(self._entity_prefix):
+            return str(value).replace("{}_".format(self._entity_prefix))
+
+        return value
