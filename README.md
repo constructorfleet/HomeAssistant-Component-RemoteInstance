@@ -48,6 +48,8 @@ remote_homeassistant:
     subscribe_events:
     - zwave.network_ready
     - zwave.node_event
+    domain_whitelist:
+    - fan
 ```
 
 ```
@@ -82,4 +84,6 @@ subscribe_events:
   default: 
   - state_changed
   - service_registered
+domain_whitelist:
+  description: If provided, will only listen to state events for the given domains. If not provided, all domains will be processed.
 ```
