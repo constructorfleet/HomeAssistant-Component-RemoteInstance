@@ -9,11 +9,14 @@ import logging
 import copy
 import asyncio
 import aiohttp
+import urllib.parse as url_parse
 
 import voluptuous as vol
 
 from homeassistant.core import callback
+from homeassistant.components.http import HomeAssistantView
 import homeassistant.components.websocket_api.auth as api
+from homeassistant.components.zwave.const import EVENT_NODE_EVENT
 from homeassistant.core import EventOrigin, split_entity_id
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 from homeassistant.const import (CONF_HOST, CONF_PORT, EVENT_CALL_SERVICE,
@@ -25,6 +28,7 @@ import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
+CONF_NAME = 'name'
 CONF_INSTANCES = 'instances'
 CONF_SECURE = 'secure'
 CONF_ACCESS_TOKEN = 'access_token'
@@ -39,6 +43,7 @@ DEFAULT_SUBSCRIBED_EVENTS = [EVENT_STATE_CHANGED,
 DEFAULT_ENTITY_PREFIX = ''
 
 INSTANCES_SCHEMA = vol.Schema({
+    vol.Required(CONF_NAME): cv.string,
     vol.Required(CONF_HOST): cv.string,
     vol.Optional(CONF_PORT, default=8123): cv.port,
     vol.Optional(CONF_SECURE, default=False): cv.boolean,
@@ -57,17 +62,176 @@ CONFIG_SCHEMA = vol.Schema({
 }, extra=vol.ALLOW_EXTRA)
 
 ATTR_NODE_ID = 'node_id'
+PROXY_URI = 'uri'
+PROXY_QUERY = 'query'
+
+HEADER_PASSWORD = 'X-HA-access'
+HEADER_AUTHORIZATION = 'Authorization'
+HEADER_AUTHORIZATION_FORMAT = 'Bearer %S'
+
+FILTER_HEADERS = [
+    HEADER_PASSWORD,
+    HEADER_PASSWORD.lower(),
+    HEADER_AUTHORIZATION,
+    HEADER_AUTHORIZATION.lower()
+]
+
+HTTP_METHODS_WITH_BODY = [
+    'post',
+    'put',
+    'patch',
+]
+
+
+def _build_base_url(schema, secure, host, port):
+    """Build url to connect to."""
+    return '%s://%s:%s/' % (
+        '{}s'.format(schema) if secure else schema, host, port)
+
+
+def _get_remote_endpoint(request, base_url):
+    encoded_proxy_uri = request.query.get
+    if not encoded_proxy_uri:
+        return None
+    return '%s%s' % (
+        base_url,
+        url_parse.unquote(
+            encoded_proxy_uri,
+            encoding='utf-8'
+        )
+    )
+
+
+def _get_forward_query_params(query_params):
+    forward_params = copy.deepcopy(query_params)
+    forward_params.pop(PROXY_URI, None)
+    return forward_params
+
+
+def _get_forward_headers(
+        headers,
+        access_token,
+        password
+):
+    forward_headers = {}
+
+    for header_key in headers.keys():
+        if header_key in FILTER_HEADERS:
+            continue
+        forward_headers[header_key] = headers.get(header_key, None)
+
+    if access_token:
+        forward_headers[HEADER_AUTHORIZATION] = HEADER_AUTHORIZATION_FORMAT % access_token
+    else:
+        forward_headers[HEADER_PASSWORD] = password
+    return forward_headers
 
 
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Set up the remote_homeassistant component."""
     conf = config.get(DOMAIN)
+    session = aiohttp.ClientSession()
 
     for instance in conf.get(CONF_INSTANCES):
         connection = RemoteConnection(hass, instance)
-        asyncio.ensure_future(connection.async_connect())
+        try:
+            await asyncio.ensure_future(connection.async_connect())
+        except:
+            continue
 
     return True
+
+
+class RemoteInstanceView(HomeAssistantView):
+    """Forward http requests to remote instance."""
+
+    requires_auth = False
+
+    def __init__(self, conf, session):
+        """Initialize the remote instance proxy view."""
+        self._instance_name = conf.get(CONF_NAME)
+        self._host = conf.get(CONF_HOST)
+        self._port = conf.get(CONF_PORT)
+        self._secure = conf.get(CONF_SECURE)
+        self._access_token = conf.get(CONF_ACCESS_TOKEN)
+        self._password = conf.get(CONF_API_PASSWORD)
+        self._session = session
+        self._remote_url = _build_base_url(
+            'http',
+            self._secure,
+            self._host,
+            self._port
+        )
+        self.url = '/api/remote_instance_proxy/%s' % self._instance_name
+        self.name = 'api:remote_instance_proxy:%s' % self._instance_name
+
+    async def get(self, request):
+        """Forward the GET request to remote instance."""
+        pass
+
+    async def post(self, request):
+        """Forward the POST request to remote instance."""
+        pass
+
+    async def delete(self, request):
+        """Forward the DELETE request to remote instance."""
+        pass
+
+    async def put(self, request):
+        """Forward the PUT request to remote instance."""
+        pass
+
+    async def patch(self, request):
+        """Forward the PATCH request to remote instance."""
+        pass
+
+    async def head(self, request):
+        """Forward the HEAD request to remote instance."""
+        pass
+
+    async def options(self, request):
+        """Forward the OPTIONS request to remote instance."""
+        pass
+
+    async def _forward_request(
+            self,
+            method,
+            request
+    ):
+        url = _get_remote_endpoint(
+            request,
+            self._remote_url
+        )
+        if url is None:
+            return
+
+        query = _get_forward_query_params(request.query)
+        headers = _get_forward_headers(
+            request.headers,
+            self._access_token,
+            self._password
+        )
+
+        try:
+            http_func = getattr(self._session, method)
+            if method in HTTP_METHODS_WITH_BODY:
+                async with http_func(
+                        url,
+                        params=query,
+                        headers=headers
+                ) as response:
+                    return await response
+
+            else:
+                async with http_func(
+                        url,
+                        params=query,
+                        data=request,
+                        headers=headers
+                ) as response:
+                    return await response
+        except:
+            return None
 
 
 class RemoteConnection(object):
@@ -94,8 +258,14 @@ class RemoteConnection(object):
     @callback
     def _get_url(self):
         """Get url to connect to."""
-        return '%s://%s:%s/api/websocket' % (
-            'wss' if self._secure else 'ws', self._host, self._port)
+        return '{}/api/websocket'.format(
+            _build_base_url(
+                'ws',
+                self._secure,
+                self._host,
+                self._port
+            )
+        )
 
     async def async_connect(self):
         """Connect to remote home-assistant websocket..."""
@@ -107,7 +277,7 @@ class RemoteConnection(object):
             try:
                 _LOGGER.info('Connecting to %s', url)
                 self._connection = await session.ws_connect(url)
-            except aiohttp.client_exceptions.ClientError as err:
+            except aiohttp.ClientError as err:
                 _LOGGER.error(
                     'Could not connect to %s, retry in 10 seconds...', url)
                 await asyncio.sleep(10)
@@ -123,7 +293,7 @@ class RemoteConnection(object):
 
         self._hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop)
 
-        asyncio.ensure_future(self._recv())
+        await asyncio.ensure_future(self._recv())
 
     def _next_id(self):
         _id = self.__id
@@ -136,7 +306,7 @@ class RemoteConnection(object):
         try:
             await self._connection.send_json(
                 {'id': _id, 'type': message_type, **extra_args})
-        except aiohttp.client_exceptions.ClientError as err:
+        except aiohttp.ClientError as err:
             _LOGGER.error('remote websocket connection closed: %s', err)
             await self._disconnected()
 
@@ -148,13 +318,13 @@ class RemoteConnection(object):
             self._remove_listener()
         self._remove_listener = None
         self._entities = set()
-        asyncio.ensure_future(self.async_connect())
+        await asyncio.ensure_future(self.async_connect())
 
     async def _recv(self):
         while not self._connection.closed:
             try:
                 data = await self._connection.receive()
-            except aiohttp.client_exceptions.ClientError as err:
+            except aiohttp.ClientError as err:
                 _LOGGER.error('remote websocket connection closed: %s', err)
                 break
 
@@ -188,14 +358,14 @@ class RemoteConnection(object):
                     _LOGGER.error('Access token or api password required, but not provided')
                     return
                 if self._access_token:
-                   data = {'type': api.TYPE_AUTH, 'access_token': self._access_token}
+                    data = {'type': api.TYPE_AUTH, 'access_token': self._access_token}
                 else:
-                   data = {'type': api.TYPE_AUTH, 'api_password': self._password}
+                    data = {'type': api.TYPE_AUTH, 'api_password': self._password}
                 try:
-                   await self._connection.send_json(data)
+                    await self._connection.send_json(data)
                 except Exception as err:
-                   _LOGGER.error('could not send data to remote connection: %s', err)
-                   break
+                    _LOGGER.error('could not send data to remote connection: %s', err)
+                    break
 
             elif message['type'] == api.TYPE_AUTH_INVALID:
                 _LOGGER.error('Auth invalid, check your access token or API password')
@@ -203,9 +373,9 @@ class RemoteConnection(object):
                 return
 
             else:
-                callback = self._handlers.get(message['id'])
-                if callback is not None:
-                    callback(message)
+                handler = self._handlers.get(message['id'])
+                if handler is not None:
+                    handler(message)
 
         await self._disconnected()
 
@@ -240,6 +410,7 @@ class RemoteConnection(object):
                     domain, object_id = split_entity_id(entity_id)
                     object_id = object_id.replace(self._entity_prefix, '', 1)
                     return domain + '.' + object_id
+
                 entity_ids = {_remove_prefix(entity_id)
                               for entity_id in entity_ids}
 
@@ -247,7 +418,8 @@ class RemoteConnection(object):
             if ATTR_NODE_ID in event_data:
                 event_data[ATTR_NODE_ID] = self._unprefix_value(event_data[ATTR_NODE_ID])
             if ATTR_NODE_ID in event_data['service_data']:
-                event_data['service_data'][ATTR_NODE_ID] = self._unprefix_value(event_data['service_data'][ATTR_NODE_ID])
+                event_data['service_data'][ATTR_NODE_ID] = self._unprefix_value(
+                    event_data['service_data'][ATTR_NODE_ID])
             event_data['service_data']['entity_id'] = list(entity_ids)
 
             # Remove service_call_id parameter - websocket API
@@ -264,14 +436,13 @@ class RemoteConnection(object):
             _LOGGER.debug('forward event: %s', data)
 
             try:
-               await self._connection.send_json(data)
+                await self._connection.send_json(data)
             except Exception as err:
                 _LOGGER.error('could not send data to remote connection: %s', err)
                 await self._disconnected()
 
-
         def state_changed(entity_id, state, attr):
-            """Publish remote state change on local instance."""  
+            """Publish remote state change on local instance."""
             if self._entity_prefix:
                 domain, object_id = split_entity_id(entity_id)
                 object_id = self._entity_prefix + object_id
@@ -305,7 +476,7 @@ class RemoteConnection(object):
                 state_changed(entity_id, state, attr)
             else:
                 event = message['event']
-                if event['event_type'] == zwave.node_event and ATTR_NODE_ID in event['data']:
+                if event['event_type'] == EVENT_NODE_EVENT and ATTR_NODE_ID in event['data']:
                     event['data'][ATTR_NODE_ID] = self._prefix_value(event['data'][ATTR_NODE_ID])
                 self._hass.bus.async_fire(
                     event_type=event['event_type'],
@@ -339,6 +510,6 @@ class RemoteConnection(object):
 
     def _unprefix_value(self, value):
         if isinstance(value, str) and str(value).startswith(self._entity_prefix):
-            return str(value).replace("{}_".format(self._entity_prefix))
+            return str(value).replace("{}_".format(self._entity_prefix), '')
 
         return value
