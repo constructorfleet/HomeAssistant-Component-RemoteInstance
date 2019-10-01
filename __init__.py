@@ -9,6 +9,7 @@ import logging
 import copy
 import asyncio
 import aiohttp
+from aiohttp.web import (Response)
 import urllib.parse as url_parse
 
 import voluptuous as vol
@@ -18,7 +19,6 @@ from homeassistant.components.http import HomeAssistantView
 import homeassistant.components.websocket_api.auth as api
 from homeassistant.components.zwave.const import EVENT_NODE_EVENT
 from homeassistant.core import EventOrigin, split_entity_id
-from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 from homeassistant.const import (CONF_HOST, CONF_PORT, EVENT_CALL_SERVICE,
                                  EVENT_HOMEASSISTANT_STOP,
                                  EVENT_STATE_CHANGED, EVENT_SERVICE_REGISTERED)
@@ -82,6 +82,9 @@ HTTP_METHODS_WITH_BODY = [
     'patch',
 ]
 
+NOT_FOUND_RESPONSE = Response(status=404)
+SERVER_ERROR_RESPONSE = Response(status=500)
+
 
 def _build_base_url(schema, secure, host, port):
     """Build url to connect to."""
@@ -127,7 +130,7 @@ def _get_forward_headers(
     return forward_headers
 
 
-async def async_setup(hass: HomeAssistantType, config: ConfigType):
+async def async_setup(hass, config):
     """Set up the remote_homeassistant component."""
     conf = config.get(DOMAIN)
     session = aiohttp.ClientSession()
@@ -136,6 +139,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         connection = RemoteConnection(hass, instance)
         try:
             await asyncio.ensure_future(connection.async_connect())
+            hass.http.register_view(RemoteInstanceView(instance, session))
         except:
             continue
 
@@ -167,31 +171,31 @@ class RemoteInstanceView(HomeAssistantView):
 
     async def get(self, request):
         """Forward the GET request to remote instance."""
-        pass
+        return await self._forward_request('get', request)
 
     async def post(self, request):
         """Forward the POST request to remote instance."""
-        pass
+        return await self._forward_request('post', request)
 
     async def delete(self, request):
         """Forward the DELETE request to remote instance."""
-        pass
+        return await self._forward_request('delete', request)
 
     async def put(self, request):
         """Forward the PUT request to remote instance."""
-        pass
+        return await self._forward_request('put', request)
 
     async def patch(self, request):
         """Forward the PATCH request to remote instance."""
-        pass
+        return await self._forward_request('patch', request)
 
     async def head(self, request):
         """Forward the HEAD request to remote instance."""
-        pass
+        return await self._forward_request('head', request)
 
     async def options(self, request):
         """Forward the OPTIONS request to remote instance."""
-        pass
+        return await self._forward_request('options', request)
 
     async def _forward_request(
             self,
@@ -203,7 +207,7 @@ class RemoteInstanceView(HomeAssistantView):
             self._remote_url
         )
         if url is None:
-            return
+            return NOT_FOUND_RESPONSE
 
         query = _get_forward_query_params(request.query)
         headers = _get_forward_headers(
@@ -231,7 +235,7 @@ class RemoteInstanceView(HomeAssistantView):
                 ) as response:
                     return await response
         except:
-            return None
+            return SERVER_ERROR_RESPONSE
 
 
 class RemoteConnection(object):
