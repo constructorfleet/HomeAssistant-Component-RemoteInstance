@@ -8,6 +8,8 @@ https://home-assistant.io/components/remote_homeassistant/
 import logging
 import copy
 import asyncio
+from builtins import str, setattr
+
 import aiohttp
 from aiohttp.web import (Response)
 import urllib.parse as url_parse
@@ -28,6 +30,15 @@ import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
+ATTR_ROUTE = 'route'
+ATTR_METHOD = 'method'
+ATTR_AUTH_REQUIRED = 'auth_required'
+ATTR_TYPE = 'type'
+ATTR_DATA = 'data'
+ATTR_EVENT = 'event'
+ATTR_SERVICE_DATA = 'service_data'
+ATTR_ENTITY_ID = ''
+
 CONF_NAME = 'name'
 CONF_INSTANCES = 'instances'
 CONF_SECURE = 'secure'
@@ -38,9 +49,13 @@ CONF_ENTITY_PREFIX = 'entity_prefix'
 
 DOMAIN = 'remote_homeassistant'
 
+EVENT_ROUTE_REGISTERED = 'route_registered'
+
 DEFAULT_SUBSCRIBED_EVENTS = [EVENT_STATE_CHANGED,
                              EVENT_SERVICE_REGISTERED]
 DEFAULT_ENTITY_PREFIX = ''
+DEFAULT_ROUTE_EVENT_TYPE = 'route_registered'
+DEFAULT_ROUTE_ATTR = 'route'
 
 INSTANCES_SCHEMA = vol.Schema({
     vol.Required(CONF_NAME): cv.string,
@@ -50,7 +65,10 @@ INSTANCES_SCHEMA = vol.Schema({
     vol.Exclusive(CONF_ACCESS_TOKEN, 'auth'): cv.string,
     vol.Exclusive(CONF_API_PASSWORD, 'auth'): cv.string,
     vol.Optional(CONF_SUBSCRIBE_EVENTS,
-                 default=DEFAULT_SUBSCRIBED_EVENTS): cv.ensure_list,
+                 default=DEFAULT_SUBSCRIBED_EVENTS): vol.All(
+        cv.ensure_list,
+        [cv.slug]
+    ),
     vol.Optional(CONF_ENTITY_PREFIX, default=DEFAULT_ENTITY_PREFIX): cv.string,
 })
 
@@ -85,6 +103,8 @@ HTTP_METHODS_WITH_BODY = [
 NOT_FOUND_RESPONSE = Response(status=404)
 SERVER_ERROR_RESPONSE = Response(status=500)
 
+SESSION = None
+
 
 def _build_base_url(schema, secure, host, port):
     """Build url to connect to."""
@@ -93,15 +113,12 @@ def _build_base_url(schema, secure, host, port):
 
 
 def _get_remote_endpoint(request, base_url):
-    encoded_proxy_uri = request.query.get
-    if not encoded_proxy_uri:
+    route = request.query.path
+    if not route:
         return None
     return '%s%s' % (
         base_url,
-        url_parse.unquote(
-            encoded_proxy_uri,
-            encoding='utf-8'
-        )
+        route
     )
 
 
@@ -133,13 +150,13 @@ def _get_forward_headers(
 async def async_setup(hass, config):
     """Set up the remote_homeassistant component."""
     conf = config.get(DOMAIN)
-    session = aiohttp.ClientSession()
+    global SESSION
+    SESSION = aiohttp.ClientSession()
 
     for instance in conf.get(CONF_INSTANCES):
         connection = RemoteConnection(hass, instance)
         try:
             await asyncio.ensure_future(connection.async_connect())
-            hass.http.register_view(RemoteInstanceView(instance, session))
         except:
             continue
 
@@ -149,53 +166,31 @@ async def async_setup(hass, config):
 class RemoteInstanceView(HomeAssistantView):
     """Forward http requests to remote instance."""
 
-    requires_auth = False
-
-    def __init__(self, conf, session):
+    def __init__(self, host, port, secure, access_token, password, route, method, auth_required):
         """Initialize the remote instance proxy view."""
-        self._instance_name = conf.get(CONF_NAME)
-        self._host = conf.get(CONF_HOST)
-        self._port = conf.get(CONF_PORT)
-        self._secure = conf.get(CONF_SECURE)
-        self._access_token = conf.get(CONF_ACCESS_TOKEN)
-        self._password = conf.get(CONF_API_PASSWORD)
-        self._session = session
+        self.requires_auth = auth_required
+        self._host = host
+        self._port = port
+        self._secure = secure
+        self._access_token = access_token
+        self._password = password
+        self._session = SESSION
         self._remote_url = _build_base_url(
             'http',
             self._secure,
             self._host,
             self._port
         )
-        self.url = '/api/remote_instance_proxy/%s' % self._instance_name
-        self.name = 'api:remote_instance_proxy:%s' % self._instance_name
+        self.url = route
+        self.name = str(route).replace('/', ':')
 
-    async def get(self, request):
-        """Forward the GET request to remote instance."""
-        return await self._forward_request('get', request)
+        def get_request_forward_handler(http_method):
+            async def forward_request(_, request):
+                return await self._forward_request(http_method, request)
 
-    async def post(self, request):
-        """Forward the POST request to remote instance."""
-        return await self._forward_request('post', request)
+            return forward_request
 
-    async def delete(self, request):
-        """Forward the DELETE request to remote instance."""
-        return await self._forward_request('delete', request)
-
-    async def put(self, request):
-        """Forward the PUT request to remote instance."""
-        return await self._forward_request('put', request)
-
-    async def patch(self, request):
-        """Forward the PATCH request to remote instance."""
-        return await self._forward_request('patch', request)
-
-    async def head(self, request):
-        """Forward the HEAD request to remote instance."""
-        return await self._forward_request('head', request)
-
-    async def options(self, request):
-        """Forward the OPTIONS request to remote instance."""
-        return await self._forward_request('options', request)
+        setattr(self, method, get_request_forward_handler(method))
 
     async def _forward_request(
             self,
@@ -309,7 +304,7 @@ class RemoteConnection(object):
         self._handlers[_id] = callback
         try:
             await self._connection.send_json(
-                {'id': _id, 'type': message_type, **extra_args})
+                {'id': _id, ATTR_TYPE: message_type, **extra_args})
         except aiohttp.ClientError as err:
             _LOGGER.error('remote websocket connection closed: %s', err)
             await self._disconnected()
@@ -354,24 +349,27 @@ class RemoteConnection(object):
 
             _LOGGER.debug('received: %s', message)
 
-            if message['type'] == api.TYPE_AUTH_OK:
+            if message[ATTR_TYPE] == api.TYPE_AUTH_OK:
                 await self._init()
 
-            elif message['type'] == api.TYPE_AUTH_REQUIRED:
+
+
+
+            elif message[ATTR_TYPE] == api.TYPE_AUTH_REQUIRED:
                 if not (self._access_token or self._password):
                     _LOGGER.error('Access token or api password required, but not provided')
                     return
                 if self._access_token:
-                    data = {'type': api.TYPE_AUTH, 'access_token': self._access_token}
+                    data = {ATTR_TYPE: api.TYPE_AUTH, 'access_token': self._access_token}
                 else:
-                    data = {'type': api.TYPE_AUTH, 'api_password': self._password}
+                    data = {ATTR_TYPE: api.TYPE_AUTH, 'api_password': self._password}
                 try:
                     await self._connection.send_json(data)
                 except Exception as err:
                     _LOGGER.error('could not send data to remote connection: %s', err)
                     break
 
-            elif message['type'] == api.TYPE_AUTH_INVALID:
+            elif message[ATTR_TYPE] == api.TYPE_AUTH_INVALID:
                 _LOGGER.error('Auth invalid, check your access token or API password')
                 await self._connection.close()
                 return
@@ -391,12 +389,12 @@ class RemoteConnection(object):
             otherwise the event is dicarded.
             """
             event_data = event.data
-            service_data = event_data['service_data']
+            service_data = event_data[ATTR_SERVICE_DATA]
 
             if not service_data:
                 return
 
-            entity_ids = service_data.get('entity_id', None)
+            entity_ids = service_data.get(ATTR_ENTITY_ID, None)
 
             if not entity_ids:
                 return
@@ -421,10 +419,10 @@ class RemoteConnection(object):
             event_data = copy.deepcopy(event_data)
             if ATTR_NODE_ID in event_data:
                 event_data[ATTR_NODE_ID] = self._unprefix_value(event_data[ATTR_NODE_ID])
-            if ATTR_NODE_ID in event_data['service_data']:
-                event_data['service_data'][ATTR_NODE_ID] = self._unprefix_value(
-                    event_data['service_data'][ATTR_NODE_ID])
-            event_data['service_data']['entity_id'] = list(entity_ids)
+            if ATTR_NODE_ID in event_data[ATTR_SERVICE_DATA]:
+                event_data[ATTR_SERVICE_DATA][ATTR_NODE_ID] = self._unprefix_value(
+                    event_data[ATTR_SERVICE_DATA][ATTR_NODE_ID])
+            event_data[ATTR_SERVICE_DATA][ATTR_ENTITY_ID] = list(entity_ids)
 
             # Remove service_call_id parameter - websocket API
             # doesn't accept that one
@@ -433,7 +431,7 @@ class RemoteConnection(object):
             _id = self._next_id()
             data = {
                 'id': _id,
-                'type': event.event_type,
+                ATTR_TYPE: event.event_type,
                 **event_data
             }
 
@@ -464,34 +462,48 @@ class RemoteConnection(object):
 
         def fire_event(message):
             """Publish remove event on local instance."""
-            if message['type'] == 'result':
+            if message[ATTR_TYPE] == 'result':
                 return
 
-            if message['type'] != 'event':
+            if message[ATTR_TYPE] != ATTR_EVENT:
                 return
 
-            if message['event']['event_type'] == 'state_changed':
-                entity_id = message['event']['data']['entity_id']
-                state = message['event']['data']['new_state']['state']
-                attr = message['event']['data']['new_state']['attributes']
+            if message[ATTR_EVENT]['event_type'] == 'state_changed':
+                entity_id = message[ATTR_EVENT][ATTR_DATA][ATTR_ENTITY_ID]
+                state = message[ATTR_EVENT][ATTR_DATA]['new_state']['state']
+                attr = message[ATTR_EVENT][ATTR_DATA]['new_state']['attributes']
                 if ATTR_NODE_ID in attr:
                     attr[ATTR_NODE_ID] = self._prefix_value(attr[ATTR_NODE_ID])
 
                 state_changed(entity_id, state, attr)
+            elif message[ATTR_EVENT]['event_type'] == EVENT_ROUTE_REGISTERED:
+                route = message[ATTR_EVENT][ATTR_DATA][ATTR_ROUTE]
+                method = message[ATTR_EVENT][ATTR_DATA][ATTR_METHOD]
+                auth_required = message[ATTR_EVENT][ATTR_DATA][ATTR_AUTH_REQUIRED]
+                RemoteInstanceView(
+                    self._host,
+                    self._port,
+                    self._secure,
+                    self._access_token,
+                    self._password,
+                    route,
+                    method,
+                    auth_required
+                )
             else:
-                event = message['event']
-                if event['event_type'] == EVENT_NODE_EVENT and ATTR_NODE_ID in event['data']:
-                    event['data'][ATTR_NODE_ID] = self._prefix_value(event['data'][ATTR_NODE_ID])
+                event = message[ATTR_EVENT]
+                if event['event_type'] == EVENT_NODE_EVENT and ATTR_NODE_ID in event[ATTR_DATA]:
+                    event[ATTR_DATA][ATTR_NODE_ID] = self._prefix_value(event[ATTR_DATA][ATTR_NODE_ID])
                 self._hass.bus.async_fire(
                     event_type=event['event_type'],
-                    event_data=event['data'],
+                    event_data=event[ATTR_DATA],
                     origin=EventOrigin.remote
                 )
 
         def got_states(message):
             """Called when list of remote states is available."""
             for entity in message['result']:
-                entity_id = entity['entity_id']
+                entity_id = entity[ATTR_ENTITY_ID]
                 state = entity['state']
                 attributes = entity['attributes']
 
