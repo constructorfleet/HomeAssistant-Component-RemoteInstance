@@ -152,13 +152,12 @@ async def async_setup(hass, config):
     conf = config.get(DOMAIN)
     global SESSION
     SESSION = aiohttp.ClientSession()
-
-    for instance in conf.get(CONF_INSTANCES):
-        connection = RemoteConnection(hass, instance)
-        try:
-            await asyncio.ensure_future(connection.async_connect())
-        except:
-            continue
+    try:
+        await asyncio.gather(
+            *[RemoteConnection(hass, instance) for instance in conf.get(CONF_INSTANCES)]
+        )
+    except:
+        return False
 
     return True
 
