@@ -239,6 +239,7 @@ class RemoteConnection(object):
     def __init__(self, hass, conf):
         """Initialize the connection."""
         self._hass = hass
+        self._name = conf.get(CONF_NAME)
         self._host = conf.get(CONF_HOST)
         self._port = conf.get(CONF_PORT)
         self._secure = conf.get(CONF_SECURE)
@@ -306,7 +307,10 @@ class RemoteConnection(object):
             await self._connection.send_json(
                 {'id': _id, ATTR_TYPE: message_type, **extra_args})
         except aiohttp.ClientError as err:
-            _LOGGER.error('remote websocket connection closed: %s', err)
+            _LOGGER.error(
+                'remote websocket to %s connection closed: %s',
+                self._name,
+                err)
             await self._disconnected()
 
     async def _disconnected(self):
@@ -324,7 +328,10 @@ class RemoteConnection(object):
             try:
                 data = await self._connection.receive()
             except aiohttp.ClientError as err:
-                _LOGGER.error('remote websocket connection closed: %s', err)
+                _LOGGER.error(
+                'remote websocket to %s connection closed: %s',
+                self._name,
+                err)
                 break
 
             if not data:
@@ -335,7 +342,7 @@ class RemoteConnection(object):
                 break
 
             if data.type == aiohttp.WSMsgType.ERROR:
-                _LOGGER.error('websocket connection had an error')
+                _LOGGER.error('websocket connection had an error %s', self._name)
                 break
 
             try:
@@ -370,7 +377,9 @@ class RemoteConnection(object):
                     break
 
             elif message[ATTR_TYPE] == api.TYPE_AUTH_INVALID:
-                _LOGGER.error('Auth invalid, check your access token or API password')
+                _LOGGER.error(
+                    'Auth invalid for %s, check your access token or API password',
+                    self._name)
                 await self._connection.close()
                 return
 
