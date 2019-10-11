@@ -108,7 +108,7 @@ SESSION = None
 
 def _build_base_url(schema, secure, host, port):
     """Build url to connect to."""
-    return '%s://%s:%s/' % (
+    return '%s://%s:%s' % (
         '{}s'.format(schema) if secure else schema, host, port)
 
 
@@ -116,7 +116,7 @@ def _get_remote_endpoint(request, base_url):
     route = request.query.path
     if not route:
         return None
-    return '%s%s' % (
+    return '%s/%s' % (
         base_url,
         route
     )
