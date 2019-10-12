@@ -266,6 +266,7 @@ class RemoteConnection(object):
     async def async_connect(self):
         """Connect to remote home-assistant websocket..."""
         url = self._get_url()
+        _LOGGER.debug("URL %s" % url)
 
         session = async_get_clientsession(self._hass, self._verify_ssl)
 
