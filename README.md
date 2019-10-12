@@ -1,8 +1,18 @@
-Follow the discussion on https://github.com/home-assistant/home-assistant/pull/13876
+[![License][license-shield]](LICENSE.md)
 
-Compatible with home-assistant >= 0.80
+[![hacs][hacsbadge]](hacs)
+![Project Maintenance][maintenance-shield]
 
-The master instance connects to the Websocket APIs of the slaves, the connection options are specified via the `host`, `port`, and `secure` configuration parameters. An API password can also be set via `api_password`.
+
+_Component to link multiple Home-Assistant instances together._
+
+**This component will set up the following platforms.**
+
+Platform | Description
+-- | --
+`remote_homeassistant` | Link multiple Home-Assistant instances together .
+
+The master instance connects to the Websocket APIs of the slaves, the connection options are specified via the `host`, `port`, and `secure` configuration parameters. An API password can also be set via `api_password`. To ignore SSL warnings in secure mode, set the `verify_ssl` parameter to false.
 
 After the connection is completed, the remote states get populated into the master instance.
 The entity ids can optionally be prefixed via the `entity_prefix` parameter.
@@ -13,9 +23,18 @@ When the connection to the remote instance is lost, all previously published sta
 
 A possible use case for this is to be able to use different Z-Wave networks, on different Z-Wave sticks (with the second one possible running on another computer in a different location).
 
-## Installation 
 
-To use this plugin, copy the `remote_homeassistant.py` file into your [custom_components folder](https://developers.home-assistant.io/docs/en/creating_component_loading.html).
+## Installation
+
+If you use HACS:
+
+1. Click install.
+2. Add `remote_homeassistant:` to your HA configuration.
+
+Otherwise:
+
+1. To use this plugin, copy the `remote_homeassistant` folder into your [custom_components folder](https://developers.home-assistant.io/docs/en/creating_component_loading.html).
+2. Add `remote_homeassistant:` to your HA configuration.
 
 ## Configuration 
 
@@ -42,6 +61,7 @@ remote_homeassistant:
   - host: localhost
     port: 8125
     secure: true
+    verify_ssl: false
     access_token: !secret access_token
     api_password: !secret http_password
     entity_prefix: "slave02_"
@@ -63,6 +83,11 @@ secure:
   description: Use TLS (wss://) to connect to the remote instance.
   required: false
   type: bool
+verify_ssl:
+  description: Enables / disables verification of the SSL certificate of the remote instance.
+  required: false
+  type: bool
+  default: true
 access_token:
   description: Access token of the remote instance, if set. Mutually exclusive with api_password
   required: false
@@ -83,3 +108,24 @@ subscribe_events:
   - state_changed
   - service_registered
 ```
+
+## Special notes 
+
+If you have remote domains (e.g. `switch`), that are not loaded on the master instance you need to add a dummy entry on the master, otherwise you'll get a `Call service failed` error.
+
+E.g. on the master:
+
+```
+switch:
+```
+
+to enable all `switch` services.
+
+---
+
+See also the discussion on https://github.com/home-assistant/home-assistant/pull/13876 and https://github.com/home-assistant/architecture/issues/246 for this component
+
+[hacs]: https://github.com/custom-components/hacs
+[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
+[license-shield]: https://img.shields.io/github/license/lukas-hetzenecker/home-assistant-remote.svg?style=for-the-badge
+[maintenance-shield]: https://img.shields.io/badge/maintainer-lukas--hetzenecker-blue.svg?style=for-the-badge
