@@ -150,14 +150,9 @@ def _get_forward_headers(
 async def async_setup(hass, config):
     """Set up the remote_homeassistant component."""
     conf = config.get(DOMAIN)
-    global SESSION
-    SESSION = aiohttp.ClientSession()
-    try:
-        await asyncio.gather(
-            *[RemoteConnection(hass, instance).async_connect() for instance in conf.get(CONF_INSTANCES)]
-        )
-    except:
-        return False
+    for instance in conf.get(CONF_INSTANCES):
+        connection = RemoteConnection(hass, instance)
+        asyncio.ensure_future(connection.async_connect())
 
     return True
 
