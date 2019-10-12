@@ -242,6 +242,7 @@ class RemoteConnection(object):
         self._host = conf.get(CONF_HOST)
         self._port = conf.get(CONF_PORT)
         self._secure = conf.get(CONF_SECURE)
+        self._verify_ssl = conf.get(CONF_VERIFY_SSL)
         self._access_token = conf.get(CONF_ACCESS_TOKEN)
         self._password = conf.get(CONF_API_PASSWORD)
         self._subscribe_events = conf.get(CONF_SUBSCRIBE_EVENTS)
@@ -270,7 +271,7 @@ class RemoteConnection(object):
         """Connect to remote home-assistant websocket..."""
         url = self._get_url()
 
-        session = async_get_clientsession(self._hass)
+        session = async_get_clientsession(self._hass, self._verify_ssl)
 
         while True:
             try:
