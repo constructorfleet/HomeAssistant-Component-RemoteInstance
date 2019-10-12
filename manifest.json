@@ -1,13 +1,13 @@
 {
-  "domain": "remote_instance",
-  "name": "Remote Instance",
-  "documentation": "https://github.com/constructorfleet/HomeAssistant-Component-RemoteInstance",
-  "requirements": [
-    "aiohttp==3.5.4",
-    "voluptuous==0.11.5"
-  ],
+  "domain": "remote_homeassistant",
+  "name": "Remote Home-Assistant",
+  "documentation": "https://github.com/lukas-hetzenecker/home-assistant-remote",
+  "dependencies": [],
+  "config_flow": false,
   "codeowners": [
-    "@lukas-hetzenecker",
-    "@teagan42"
-  ]
+    "@lukas-hetzenecker"
+  ],
+  "requirements": [
+  ],
+  "homeassistant": "0.96.0"
 }
