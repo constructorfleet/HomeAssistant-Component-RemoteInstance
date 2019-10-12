@@ -154,7 +154,7 @@ async def async_setup(hass, config):
     SESSION = aiohttp.ClientSession()
     try:
         await asyncio.gather(
-            *[RemoteConnection(hass, instance) for instance in conf.get(CONF_INSTANCES)]
+            *[RemoteConnection(hass, instance).async_connect for instance in conf.get(CONF_INSTANCES)]
         )
     except:
         return False
