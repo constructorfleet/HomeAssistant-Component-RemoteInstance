@@ -46,6 +46,7 @@ CONF_ACCESS_TOKEN = 'access_token'
 CONF_API_PASSWORD = 'api_password'
 CONF_SUBSCRIBE_EVENTS = 'subscribe_events'
 CONF_ENTITY_PREFIX = 'entity_prefix'
+CONF_VERIFY_SSL = 'verify_ssl'
 
 DOMAIN = 'remote_homeassistant'
 
