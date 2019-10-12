@@ -37,7 +37,7 @@ ATTR_TYPE = 'type'
 ATTR_DATA = 'data'
 ATTR_EVENT = 'event'
 ATTR_SERVICE_DATA = 'service_data'
-ATTR_ENTITY_ID = ''
+ATTR_ENTITY_ID = 'entity_id'
 
 CONF_NAME = 'name'
 CONF_INSTANCES = 'instances'
@@ -354,10 +354,6 @@ class RemoteConnection(object):
 
             if message[ATTR_TYPE] == api.TYPE_AUTH_OK:
                 await self._init()
-
-
-
-
             elif message[ATTR_TYPE] == api.TYPE_AUTH_REQUIRED:
                 if not (self._access_token or self._password):
                     _LOGGER.error('Access token or api password required, but not provided')
