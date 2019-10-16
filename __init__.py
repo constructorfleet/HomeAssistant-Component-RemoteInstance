@@ -14,6 +14,7 @@ import voluptuous as vol
 
 from homeassistant.core import callback
 import homeassistant.components.websocket_api.auth as api
+from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import EventOrigin, split_entity_id
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 from homeassistant.const import (CONF_HOST, CONF_PORT, EVENT_CALL_SERVICE,
@@ -38,6 +39,16 @@ DOMAIN = 'remote_homeassistant'
 DEFAULT_SUBSCRIBED_EVENTS = [EVENT_STATE_CHANGED,
                              EVENT_SERVICE_REGISTERED]
 DEFAULT_ENTITY_PREFIX = ''
+
+EVENT_ROUTE_REGISTERED = 'route_registered'
+ATTR_ROUTE = 'route'
+ATTR_METHOD = 'method'
+ATTR_AUTH_REQUIRED = 'auth_required'
+
+HEADER_KEY_PASSWORD = 'X-HA-access'
+HEADER_KEY_AUTHORIZATION = 'Authorization'
+
+METHODS_WITH_PAYLOAD = ('post', 'put', 'patch')
 
 INSTANCES_SCHEMA = vol.Schema({
     vol.Required(CONF_HOST): cv.string,
@@ -70,6 +81,75 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
+class RemoteApiProxy(HomeAssistantView):
+    """A proxy for remote API calls."""
+
+    cors_allowed = True
+
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
+        """Initializing the proxy."""
+        if method not in ("get", "post", "delete", "put", "patch", "head", "options"):
+            return
+
+        self.requires_auth = False
+        self.url = route if str(route).startswith('/') else '/%s' % route
+        self.name = self.url.replace('/', ':')[1:]
+
+        self._session = session
+        self._hass = hass
+        self._host = host
+        self._port = port
+        self._secure = secure
+        self._access_token = access_token
+        self._password = password
+        self._auth_required = auth_required
+        self._method = method
+
+        setattr(self, method, callback(self._perform_proxy))
+
+        hass.http.register_view(self)
+
+    def _perform_proxy(self, request):
+        headers = request.headers
+        if not self._auth_required:
+            del headers[HEADER_KEY_AUTHORIZATION]
+            del headers[HEADER_KEY_PASSWORD]
+
+        if self._auth_required:
+            auth_header_key, auth_header_value = self._get_auth_header()
+            headers[auth_header_key] = auth_header_value
+
+        request_method = getattr(self._session, self._method, None)
+        if not request_method:
+            raise aiohttp.web.HTTPFound('/redirect')
+
+        if self._method in METHODS_WITH_PAYLOAD:
+            request_method(
+                self._get_url(),
+                json=request.json(),
+                params=request.query,
+                headers=headers
+            )
+        else:
+            request_method(
+                self._get_url(),
+                params=request.query,
+                headers=headers
+            )
+
+    def _get_url(self):
+        """Get url to connect to."""
+        return '%s://%s:%s%s' % (
+            'http' if self._secure else 'ws', self._host, self._port, self.url)
+
+    def _get_auth_header(self):
+        """Get the authentication header."""
+        if self._access_token:
+            return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self._access_token
+        else:
+            return HEADER_KEY_PASSWORD, self._password
+
+
 class RemoteConnection(object):
     """A Websocket connection to a remote home-assistant instance."""
 
@@ -89,6 +169,8 @@ class RemoteConnection(object):
         self._entities = set()
         self._handlers = {}
         self._remove_listener = None
+
+        self._session = aiohttp.ClientSession() if EVENT_ROUTE_REGISTERED in self._subscribe_events else None
 
         self.__id = 1
 
@@ -266,7 +348,6 @@ class RemoteConnection(object):
                 _LOGGER.error('could not send data to remote connection: %s', err)
                 await self._disconnected()
 
-
         def state_changed(entity_id, state, attr):
             """Publish remote state change on local instance."""
             if self._entity_prefix:
@@ -294,6 +375,11 @@ class RemoteConnection(object):
                 state = message['event']['data']['new_state']['state']
                 attr = message['event']['data']['new_state']['attributes']
                 state_changed(entity_id, state, attr)
+            elif message['event']['event_type'] == EVENT_ROUTE_REGISTERED:
+                data = message['event']['data']
+                route = data[ATTR_ROUTE]
+                method = data[ATTR_METHOD]
+
             else:
                 event = message['event']
                 self._hass.bus.async_fire(
