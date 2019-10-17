@@ -82,6 +82,22 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
+def get_decorated_proxy_function(view):
+    return callback(view.perform_proxy)
+
+
+def get_remote_api_proxy(hass, session, host, port, secure, access_token, password, route, method, auth_required):
+    if method not in ("get", "post", "delete", "put", "patch", "head", "options"):
+        return None
+    proxy = RemoteApiProxy(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+
+    setattr(proxy, method, get_decorated_proxy_function(view))
+
+    hass.http.register_view(proxy)
+
+    return proxy
+
+
 class RemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
 
@@ -96,6 +112,8 @@ class RemoteApiProxy(HomeAssistantView):
         self.url = route if str(route).startswith('/') else '/%s' % route
         self.name = self.url.replace('/', ':')[1:]
 
+        _LOGGER.warning("PROXY %s %s" % (method, self.url))
+
         self._session = session
         self._hass = hass
         self._host = host
@@ -106,12 +124,7 @@ class RemoteApiProxy(HomeAssistantView):
         self._auth_required = auth_required
         self._method = method
 
-        setattr(self, method, self._perform_proxy)
-        _LOGGER.warning("Registering Endpoint %s %s" % (method, self._get_url()))
-        hass.http.register_view(self)
-
-    @callback
-    def _perform_proxy(self, request):
+    def perform_proxy(self, request):
         headers = {}
         _LOGGER.warning("Handing Proxy")
 
@@ -381,7 +394,7 @@ class RemoteConnection(object):
                 route = data[ATTR_ROUTE]
                 method = data[ATTR_METHOD]
                 auth_required = data[ATTR_AUTH_REQUIRED]
-                RemoteApiProxy(
+                get_remote_api_proxy(
                     self._hass,
                     self._session,
                     self._host,
