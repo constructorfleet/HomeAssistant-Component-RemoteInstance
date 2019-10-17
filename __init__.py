@@ -106,11 +106,12 @@ class RemoteApiProxy(HomeAssistantView):
         self._method = method
 
         setattr(self, method, callback(self._perform_proxy))
-
+        _LOGGER.warning("Registering Endpoint %s %s" % (method, self._get_url()))
         hass.http.register_view(self)
 
     def _perform_proxy(self, request):
         headers = request.headers
+        _LOGGER.warning("Handing Proxy")
         if not self._auth_required:
             del headers[HEADER_KEY_AUTHORIZATION]
             del headers[HEADER_KEY_PASSWORD]
@@ -121,6 +122,7 @@ class RemoteApiProxy(HomeAssistantView):
 
         request_method = getattr(self._session, self._method, None)
         if not request_method:
+            _LOGGER.warning("Couldn't find method %s" % self._method)
             raise aiohttp.web.HTTPFound('/redirect')
 
         if self._method in METHODS_WITH_PAYLOAD:
@@ -379,7 +381,18 @@ class RemoteConnection(object):
                 data = message['event']['data']
                 route = data[ATTR_ROUTE]
                 method = data[ATTR_METHOD]
-
+                auth_required = data[ATTR_AUTH_REQUIRED]
+                RemoteApiProxy(
+                    self._hass,
+                    self._session,
+                    self._host,
+                    self._port,
+                    self._secure,
+                    self._access_token,
+                    self._password,
+                    route,
+                    method,
+                    auth_required)
             else:
                 event = message['event']
                 self._hass.bus.async_fire(
