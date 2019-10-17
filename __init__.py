@@ -418,7 +418,7 @@ class RemoteConnection(object):
                 route = data[ATTR_ROUTE]
                 method = data[ATTR_METHOD]
                 auth_required = data[ATTR_AUTH_REQUIRED]
-                get_remote_api_proxy(
+                RemoteApiProxy(
                     self._hass,
                     self._session,
                     self._host,
