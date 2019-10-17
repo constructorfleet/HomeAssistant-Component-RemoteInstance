@@ -41,6 +41,7 @@ DEFAULT_SUBSCRIBED_EVENTS = [EVENT_STATE_CHANGED,
 DEFAULT_ENTITY_PREFIX = ''
 
 EVENT_ROUTE_REGISTERED = 'route_registered'
+EVENT_TYPE_REQUEST_ROUTES = 'request_routes'
 ATTR_ROUTE = 'route'
 ATTR_METHOD = 'method'
 ATTR_AUTH_REQUIRED = 'auth_required'
@@ -414,5 +415,7 @@ class RemoteConnection(object):
 
         for event in self._subscribe_events:
             await self._call(fire_event, 'subscribe_events', event_type=event)
+
+        await self._call(None, EVENT_TYPE_REQUEST_ROUTES)
 
         await self._call(got_states, 'get_states')
