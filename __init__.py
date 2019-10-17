@@ -106,7 +106,7 @@ class RemoteApiProxy(HomeAssistantView):
         self._auth_required = auth_required
         self._method = method
 
-        setattr(self, method, callback(self._perform_proxy))
+        setattr(self, method, self._perform_proxy)
         _LOGGER.warning("Registering Endpoint %s %s" % (method, self._get_url()))
         hass.http.register_view(self)
 
