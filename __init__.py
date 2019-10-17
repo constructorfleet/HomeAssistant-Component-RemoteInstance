@@ -109,15 +109,15 @@ class RemoteApiProxy(HomeAssistantView):
         self._auth_required = auth_required
         self._method = method
 
-        @callback
+        @asyncio.coroutine
         def proxy(request):
-            self.perform_proxy(request)
+            await self.perform_proxy(request)
 
         setattr(self, method, proxy)
 
         hass.http.register_view(self)
 
-    def perform_proxy(self, request):
+    async def perform_proxy(self, request):
         headers = {}
         _LOGGER.warning("Handing Proxy")
 
@@ -131,14 +131,14 @@ class RemoteApiProxy(HomeAssistantView):
             raise aiohttp.web.HTTPFound('/redirect')
 
         if self._method in METHODS_WITH_PAYLOAD:
-            request_method(
+            await request_method(
                 self._get_url(),
                 json=request.json(),
                 params=request.query,
                 headers=headers
             )
         else:
-            request_method(
+            await request_method(
                 self._get_url(),
                 params=request.query,
                 headers=headers
