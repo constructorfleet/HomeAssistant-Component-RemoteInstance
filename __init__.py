@@ -83,22 +83,6 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
-def get_decorated_proxy_function(function):
-    return coroutine(function)
-
-
-def get_remote_api_proxy(hass, session, host, port, secure, access_token, password, route, method, auth_required):
-    if method not in ("get", "post", "delete", "put", "patch", "head", "options"):
-        return None
-    proxy = RemoteApiProxy(hass, session, host, port, secure, access_token, password, route, method, auth_required)
-
-    setattr(proxy, method, get_decorated_proxy_function(proxy.perform_proxy))
-
-    hass.http.register_view(proxy)
-
-    return proxy
-
-
 class RemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
 
@@ -124,6 +108,42 @@ class RemoteApiProxy(HomeAssistantView):
         self._password = password
         self._auth_required = auth_required
         self._method = method
+
+        for func in ["get", "post", "delete", "put", "patch", "head", "options"]:
+            if func == method:
+                continue
+            delattr(self, func)
+
+        hass.http.register_view(self)
+
+
+    @callback
+    def get(self, request):
+        self.perform_proxy(request)
+
+    @callback
+    def post(self, request):
+        self.perform_proxy(request)
+
+    @callback
+    def delete(self, request):
+        self.perform_proxy(request)
+
+    @callback
+    def put(self, request):
+        self.perform_proxy(request)
+
+    @callback
+    def patch(self, request):
+        self.perform_proxy(request)
+
+    @callback
+    def head(self, request):
+        self.perform_proxy(request)
+
+    @callback
+    def options(self, request):
+        self.perform_proxy(request)
 
     def perform_proxy(self, request):
         headers = {}
