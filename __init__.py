@@ -110,7 +110,7 @@ class RemoteApiProxy(HomeAssistantView):
         self._method = method
 
         @asyncio.coroutine
-        def proxy(request):
+        async def proxy(request):
             await self.perform_proxy(request)
 
         setattr(self, method, proxy)
