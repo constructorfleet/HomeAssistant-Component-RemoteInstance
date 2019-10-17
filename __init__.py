@@ -141,7 +141,7 @@ class RemoteApiProxy(HomeAssistantView):
     def _get_url(self):
         """Get url to connect to."""
         return '%s://%s:%s%s' % (
-            'http' if self._secure else 'ws', self._host, self._port, self.url)
+            'https' if self._secure else 'http', self._host, self._port, self.url)
 
     def _get_auth_header(self):
         """Get the authentication header."""
