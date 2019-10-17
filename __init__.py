@@ -11,6 +11,7 @@ import asyncio
 import aiohttp
 
 import voluptuous as vol
+from asyncio import coroutine
 
 from homeassistant.core import callback
 import homeassistant.components.websocket_api.auth as api
@@ -83,7 +84,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
 
 def get_decorated_proxy_function(function):
-    return callback(function)
+    return coroutine(function)
 
 
 def get_remote_api_proxy(hass, session, host, port, secure, access_token, password, route, method, auth_required):
