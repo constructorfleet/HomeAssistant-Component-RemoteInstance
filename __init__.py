@@ -82,8 +82,8 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
-def get_decorated_proxy_function(view):
-    return callback(view.perform_proxy)
+def get_decorated_proxy_function(function):
+    return callback(function)
 
 
 def get_remote_api_proxy(hass, session, host, port, secure, access_token, password, route, method, auth_required):
