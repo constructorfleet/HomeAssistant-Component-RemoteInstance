@@ -416,6 +416,6 @@ class RemoteConnection(object):
         for event in self._subscribe_events:
             await self._call(fire_event, 'subscribe_events', event_type=event)
 
-        await self._call(None, EVENT_TYPE_REQUEST_ROUTES)
+        await self._call(fire_event, EVENT_TYPE_REQUEST_ROUTES)
 
         await self._call(got_states, 'get_states')
