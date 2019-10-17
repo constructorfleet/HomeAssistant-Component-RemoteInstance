@@ -91,7 +91,7 @@ def get_remote_api_proxy(hass, session, host, port, secure, access_token, passwo
         return None
     proxy = RemoteApiProxy(hass, session, host, port, secure, access_token, password, route, method, auth_required)
 
-    setattr(proxy, method, get_decorated_proxy_function(view))
+    setattr(proxy, method, get_decorated_proxy_function(proxy.perform_proxy))
 
     hass.http.register_view(proxy)
 
@@ -231,6 +231,7 @@ class RemoteConnection(object):
         _id = self._next_id()
         self._handlers[_id] = callback
         try:
+            _LOGGER.warning("Sending %s" % message_type)
             await self._connection.send_json(
                 {'id': _id, 'type': message_type, **extra_args})
         except aiohttp.client_exceptions.ClientError as err:
@@ -383,6 +384,8 @@ class RemoteConnection(object):
 
             if message['type'] != 'event':
                 return
+
+            _LOGGER.warning("RECEIVED MESSAGE %s" % str(message))
 
             if message['event']['event_type'] == 'state_changed':
                 entity_id = message['event']['data']['entity_id']
