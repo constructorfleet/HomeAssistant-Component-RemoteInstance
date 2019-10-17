@@ -110,6 +110,7 @@ class RemoteApiProxy(HomeAssistantView):
         _LOGGER.warning("Registering Endpoint %s %s" % (method, self._get_url()))
         hass.http.register_view(self)
 
+    @callback
     def _perform_proxy(self, request):
         headers = request.headers
         _LOGGER.warning("Handing Proxy")
