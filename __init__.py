@@ -112,11 +112,8 @@ class RemoteApiProxy(HomeAssistantView):
 
     @callback
     def _perform_proxy(self, request):
-        headers = request.headers
+        headers = {}
         _LOGGER.warning("Handing Proxy")
-        if not self._auth_required:
-            del headers[HEADER_KEY_AUTHORIZATION]
-            del headers[HEADER_KEY_PASSWORD]
 
         if self._auth_required:
             auth_header_key, auth_header_value = self._get_auth_header()
