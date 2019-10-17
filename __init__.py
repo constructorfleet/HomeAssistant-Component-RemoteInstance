@@ -109,41 +109,13 @@ class RemoteApiProxy(HomeAssistantView):
         self._auth_required = auth_required
         self._method = method
 
-        for func in ["get", "post", "delete", "put", "patch", "head", "options"]:
-            if func == method:
-                continue
-            delattr(self, func)
+        @callback
+        def proxy(request):
+            self.perform_proxy(request)
+
+        setattr(self, method, proxy)
 
         hass.http.register_view(self)
-
-
-    @callback
-    def get(self, request):
-        self.perform_proxy(request)
-
-    @callback
-    def post(self, request):
-        self.perform_proxy(request)
-
-    @callback
-    def delete(self, request):
-        self.perform_proxy(request)
-
-    @callback
-    def put(self, request):
-        self.perform_proxy(request)
-
-    @callback
-    def patch(self, request):
-        self.perform_proxy(request)
-
-    @callback
-    def head(self, request):
-        self.perform_proxy(request)
-
-    @callback
-    def options(self, request):
-        self.perform_proxy(request)
 
     def perform_proxy(self, request):
         headers = {}
