@@ -164,6 +164,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         else:
             return HEADER_KEY_PASSWORD, self._password
 
+
 class GetRemoteApiProxy(RemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
@@ -215,10 +216,10 @@ class RemoteConnection(object):
         self.__id = 1
 
     @callback
-    def _get_url(self):
+    def _get_url(self, scheme="ws", route="/api/websocket"):
         """Get url to connect to."""
-        return '%s://%s:%s/api/websocket' % (
-            'wss' if self._secure else 'ws', self._host, self._port)
+        return '%s://%s:%s%s' % (
+            '%ss' % scheme if self._secure else scheme, self._host, self._port, route if route else "")
 
     async def async_connect(self):
         """Connect to remote home-assistant websocket..."""
@@ -390,17 +391,10 @@ class RemoteConnection(object):
         def state_changed(entity_id, state, attr):
             """Publish remote state change on local instance."""
             if ATTR_ENTITY_PICTURE in attr:
-                RemoteApiProxy(
-                    self._hass,
-                    self._session,
-                    self._host,
-                    self._port,
-                    self._secure,
-                    self._access_token,
-                    self._password,
+                self._hass.http.register_redirect(
                     attr[ATTR_ENTITY_PICTURE],
-                    'get',
-                    True)
+                    self._get_url("http", attr[ATTR_ENTITY_PICTURE])
+                )
             if self._entity_prefix:
                 domain, object_id = split_entity_id(entity_id)
                 object_id = self._entity_prefix + object_id
