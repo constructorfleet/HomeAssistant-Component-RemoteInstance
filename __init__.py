@@ -72,6 +72,8 @@ CONFIG_SCHEMA = vol.Schema({
 }, extra=vol.ALLOW_EXTRA)
 
 
+
+
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Set up the remote_homeassistant component."""
     conf = config.get(DOMAIN)
@@ -83,7 +85,20 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
-class RemoteApiProxy(HomeAssistantView):
+def register_proxy(hass, session, host, port, secure, access_token, password, route, method, auth_required):
+    if method == 'get':
+        proxy = GetRemoteApiProxy(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+    elif method == 'post':
+        proxy = PostRemoteApiProxy(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+    elif method == 'put':
+        proxy = PutRemoteApiProxy(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+    else:
+        return
+
+    hass.http.register_view(proxy)
+
+
+class AbstractRemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
 
     cors_allowed = True
@@ -108,14 +123,6 @@ class RemoteApiProxy(HomeAssistantView):
         self._password = password
         self._auth_required = auth_required
         self._method = method
-
-        @asyncio.coroutine
-        async def proxy(request):
-            await self.perform_proxy(request)
-
-        setattr(self, method, proxy)
-
-        hass.http.register_view(self)
 
     async def perform_proxy(self, request):
         headers = {}
@@ -155,6 +162,31 @@ class RemoteApiProxy(HomeAssistantView):
             return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self._access_token
         else:
             return HEADER_KEY_PASSWORD, self._password
+
+class GetRemoteApiProxy(RemoteApiProxy):
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+
+    @callback
+    def get(self, request):
+        self.perform_proxy(request)
+
+
+class PostRemoteApiProxy(RemoteApiProxy):
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+
+    @callback
+    def post(self, request):
+        self.perform_proxy(request)
+
+class PutRemoteApiProxy(RemoteApiProxy):
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+
+    @callback
+    def post(self, request):
+        self.perform_proxy(request)
 
 
 class RemoteConnection(object):
@@ -268,8 +300,6 @@ class RemoteConnection(object):
 
             if message is None:
                 break
-
-            _LOGGER.debug('received: %s', message)
 
             if message['type'] == api.TYPE_AUTH_OK:
                 await self._init()
