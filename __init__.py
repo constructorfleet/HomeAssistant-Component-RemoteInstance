@@ -20,7 +20,8 @@ from homeassistant.core import EventOrigin, split_entity_id
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 from homeassistant.const import (CONF_HOST, CONF_PORT, EVENT_CALL_SERVICE,
                                  EVENT_HOMEASSISTANT_STOP, ATTR_ENTITY_PICTURE,
-                                 EVENT_STATE_CHANGED, EVENT_SERVICE_REGISTERED)
+                                 EVENT_STATE_CHANGED, EVENT_SERVICE_REGISTERED,
+                                 ATTR_DOMAIN, ATTR_SERVICE)
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
@@ -429,7 +430,17 @@ class RemoteConnection(object):
 
                 state_changed(entity_id, state, attributes)
 
+        def got_services(message):
+            for domain in message['result']:
+                for service in domain:
+                    self._hass.bus.async_fire(
+                        EVENT_SERVICE_REGISTERED, 
+                        {ATTR_DOMAIN: domain, ATTR_SERVICE: service}
+                    )
+
         self._remove_listener = self._hass.bus.async_listen(EVENT_CALL_SERVICE, forward_event)
+
+        await self._call(got_services, 'get_services')
 
         for event in self._subscribe_events:
             await self._call(fire_event, 'subscribe_events', event_type=event)
