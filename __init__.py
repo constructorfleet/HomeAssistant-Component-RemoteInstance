@@ -165,32 +165,6 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             return HEADER_KEY_PASSWORD, self._password
 
 
-class GetRemoteApiProxy(RemoteApiProxy):
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
-
-    @callback
-    def get(self, request):
-        self.perform_proxy(request)
-
-
-class PostRemoteApiProxy(RemoteApiProxy):
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
-
-    @callback
-    def post(self, request):
-        self.perform_proxy(request)
-
-class PutRemoteApiProxy(RemoteApiProxy):
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
-
-    @callback
-    def post(self, request):
-        self.perform_proxy(request)
-
-
 class RemoteConnection(object):
     """A Websocket connection to a remote home-assistant instance."""
 
