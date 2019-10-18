@@ -94,8 +94,9 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
         proxy = PutRemoteApiProxy(hass, session, host, port, secure, access_token, password, route, method, auth_required)
     else:
         return
-
+    _LOGGER.warning("PROXY %s" % proxy.__class__.__name__)
     hass.http.register_view(proxy)
+    _LOGGER.warning("ROUTES %s" % str(hass.http.app))
 
 
 class AbstractRemoteApiProxy(HomeAssistantView):
