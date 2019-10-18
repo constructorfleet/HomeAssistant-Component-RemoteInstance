@@ -19,7 +19,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import EventOrigin, split_entity_id
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 from homeassistant.const import (CONF_HOST, CONF_PORT, EVENT_CALL_SERVICE,
-                                 EVENT_HOMEASSISTANT_STOP,
+                                 EVENT_HOMEASSISTANT_STOP, ATTR_ENTITY_PICTURE,
                                  EVENT_STATE_CHANGED, EVENT_SERVICE_REGISTERED)
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -358,6 +358,18 @@ class RemoteConnection(object):
 
         def state_changed(entity_id, state, attr):
             """Publish remote state change on local instance."""
+            if ATTR_ENTITY_PICTURE in attr:
+                RemoteApiProxy(
+                    self._hass,
+                    self._session,
+                    self._host,
+                    self._port,
+                    self._secure,
+                    self._access_token,
+                    self._password,
+                    attr[ATTR_ENTITY_PICTURE],
+                    'get',
+                    True)
             if self._entity_prefix:
                 domain, object_id = split_entity_id(entity_id)
                 object_id = self._entity_prefix + object_id
