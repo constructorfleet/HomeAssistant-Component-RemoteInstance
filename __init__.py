@@ -434,8 +434,9 @@ class RemoteConnection(object):
             for domain in message['result']:
                 for service in domain:
                     self._hass.bus.async_fire(
-                        EVENT_SERVICE_REGISTERED, 
-                        {ATTR_DOMAIN: domain, ATTR_SERVICE: service}
+                        event_type=EVENT_SERVICE_REGISTERED, 
+                        event_data={ATTR_DOMAIN: domain, ATTR_SERVICE: service},
+                        origin=EventOrigin.remote
                     )
 
         self._remove_listener = self._hass.bus.async_listen(EVENT_CALL_SERVICE, forward_event)
