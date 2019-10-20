@@ -489,9 +489,10 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         self._auth_required = auth_required
         self._method = method
 
-    async def perform_proxy(self, request):
+    async def perform_proxy(self, request, **kwargs):
         headers = {}
-        _LOGGER.warning("Proxying %s %s to %s" % (request.method, request.url, self._get_url()))
+        proxy_url = self._get_url(**kwargs)
+        _LOGGER.warning("Proxying %s %s to %s" % (request.method, request.url, proxy_url))
 
         if self._auth_required:
             auth_header_key, auth_header_value = self._get_auth_header()
@@ -505,14 +506,14 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         result = None
         if self._method in HTTP_METHODS_WITH_PAYLOAD:
             result = await request_method(
-                self._get_url(),
+                proxy_url,
                 json=request.json(),
                 params=request.query,
                 headers=headers
             )
         else:
             result = await request_method(
-                self._get_url(),
+                proxy_url,
                 params=request.query,
                 headers=headers
             )
@@ -522,10 +523,14 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         else:
             return _convert_response(result)
 
-    def _get_url(self):
-        """Get url to connect to."""
-        return '%s://%s:%s%s' % (
+    def _get_url(self, **kwargs):
+        """Get route to connect to."""
+        url = '%s://%s:%s%s' % (
             'https' if self._secure else 'http', self._host, self._port, self.url)
+        if kwargs:
+            for key, value in kwargs.items():
+                url.replace('{%s}' % key, value)
+        return url
 
     def _get_auth_header(self):
         """Get the authentication header."""
@@ -541,8 +546,8 @@ class GetRemoteApiProxy(AbstractRemoteApiProxy):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
 
     @callback
-    def get(self, request):
-        return self.perform_proxy(request)
+    def get(self, request, **kwargs):
+        return self.perform_proxy(request, **kwargs)
 
 
 class PostRemoteApiProxy(AbstractRemoteApiProxy):
@@ -551,8 +556,8 @@ class PostRemoteApiProxy(AbstractRemoteApiProxy):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
 
     @callback
-    def post(self, request):
-        return self.perform_proxy(request)
+    def post(self, request, **kwargs):
+        return self.perform_proxy(request, **kwargs)
 
 
 class PutRemoteApiProxy(AbstractRemoteApiProxy):
@@ -561,5 +566,5 @@ class PutRemoteApiProxy(AbstractRemoteApiProxy):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
 
     @callback
-    def put(self, request):
-        return self.perform_proxy(request)
+    def put(self, request, **kwargs):
+        return self.perform_proxy(request, **kwargs)
