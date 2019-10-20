@@ -13,8 +13,9 @@ import aiohttp
 import homeassistant.components.websocket_api.auth as api
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from aiohttp import ClientError
-from aiohttp.web import HTTPFound
+from aiohttp import ClientError, ClientResponse
+from aiohttp.web import Response
+from aiohttp.web_exceptions import HTTPNotFound
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (CONF_HOST, CONF_PORT)
@@ -455,6 +456,14 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
     _LOGGER.warning("ROUTES %s" % str(hass.http.app))
 
 
+def _convert_response(client_response):
+    return Response(
+        body=client_response.content,
+        content_type=client_response.content_type,
+        status=client_response.status,
+        headers=client_response.headers)
+
+
 class AbstractRemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
 
@@ -492,21 +501,27 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         request_method = getattr(self._session, self._method, None)
         if not request_method:
             _LOGGER.warning("Couldn't find method %s" % self._method)
-            raise HTTPFound('/redirect')
+            raise HTTPNotFound()
 
+        result = None
         if self._method in HTTP_METHODS_WITH_PAYLOAD:
-            return await request_method(
+            result = await request_method(
                 self._get_url(),
                 json=request.json(),
                 params=request.query,
                 headers=headers
             )
         else:
-            return await request_method(
+            result = await request_method(
                 self._get_url(),
                 params=request.query,
                 headers=headers
             )
+
+        if result is None:
+            return Response(body="Unable to proxy request", status=500)
+        else:
+            return _convert_response(result)
 
     def _get_url(self):
         """Get url to connect to."""
