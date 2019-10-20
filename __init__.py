@@ -300,7 +300,7 @@ class RemoteInstance(object):
         def state_changed(entity_id, state, attr):
             """Publish remote state change on local instance."""
             if ATTR_ENTITY_PICTURE in attr:
-                route = attr[ATTR_ROUTE].split('?')[0]
+                route = attr[ATTR_ENTITY_PICTURE].split('?')[0]
                 method = 'get'
                 auth_required = self._token or self._password
                 register_proxy(
