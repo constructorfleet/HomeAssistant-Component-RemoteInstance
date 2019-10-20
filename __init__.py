@@ -419,7 +419,8 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
             port,
             secure,
             access_token,
-            password
+            password,
+            route
         )
     else:
         proxy_class = {
@@ -568,7 +569,8 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             port,
             secure,
             access_token,
-            password
+            password,
+            self.url
         )
 
     def add_proxy(self,
@@ -577,14 +579,16 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                   port,
                   secure,
                   access_token,
-                  password):
+                  password,
+                  route):
         self.proxies.add(ProxyData(
             session,
             host,
             port,
             secure,
             access_token,
-            password
+            password,
+            route
         ))
 
     async def perform_proxy(self, request, **kwargs):
