@@ -49,6 +49,9 @@ ATTR_ROUTE = 'route'
 ATTR_METHOD = 'method'
 ATTR_AUTH_REQUIRED = 'auth_required'
 
+DATA_ROUTES = 'routes'
+DATA_METHODS = 'methods'
+
 HEADER_KEY_PASSWORD = 'X-HA-access'
 HEADER_KEY_AUTHORIZATION = 'Authorization'
 
@@ -122,6 +125,15 @@ class RemoteInstance(object):
         self._session = aiohttp.ClientSession() if EVENT_ROUTE_REGISTERED in self._subscribe_to else None
 
         self.__id = 1
+
+        self._hass.data[DOMAIN] = {
+            DATA_METHODS: {}
+        }
+
+        for method in HTTP_METHODS:
+            self._hass.data[DOMAIN][method] = {
+                DATA_ROUTES: []
+            }
 
     @callback
     def _get_url(self, scheme, route):
@@ -334,8 +346,6 @@ class RemoteInstance(object):
             if message['type'] != 'event':
                 return
 
-            _LOGGER.warning("RECEIVED MESSAGE %s" % str(message))
-
             if message['event']['event_type'] == EVENT_STATE_CHANGED:
                 entity_id = message['event']['data']['entity_id']
                 state = message['event']['data']['new_state']['state']
@@ -398,6 +408,9 @@ class RemoteInstance(object):
 
 
 def register_proxy(hass, session, host, port, secure, access_token, password, route, method, auth_required):
+    if route in hass.data[DOMAIN][method][DATA_ROUTES]:
+        return
+    hass.data[DOMAIN][method][DATA_ROUTES].append(route)
     if method == 'get':
         proxy = GetRemoteApiProxy(
             hass,
@@ -470,7 +483,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
     async def perform_proxy(self, request):
         headers = {}
-        _LOGGER.warning("Handing Proxy")
+        _LOGGER.warning("Proxying %s %s" % (request.method, request.url))
 
         if self._auth_required:
             auth_header_key, auth_header_value = self._get_auth_header()
