@@ -540,12 +540,11 @@ class ProxyData(object):
         if isinstance(other, ProxyData):
             return self.host == other.host \
                    and self.port == other.port \
-                   and self.method == other.method \
-                   and self.route == other.route
+                   and self.method == other.method
         return False
 
     def __hash__(self):
-        return hash('%s%s%s%s' % (self.host, self.port, self.method, self.route))
+        return hash('%s%s%s' % (self.host, self.port, self.method))
 
 
 class AbstractRemoteApiProxy(HomeAssistantView):
