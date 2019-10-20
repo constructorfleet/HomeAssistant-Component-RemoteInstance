@@ -8,6 +8,7 @@ https://home-assistant.io/components/remote_homeassistant/
 import asyncio
 import copy
 import logging
+import re
 
 import aiohttp
 import homeassistant.components.websocket_api.auth as api
@@ -491,7 +492,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
     async def perform_proxy(self, request, **kwargs):
         headers = {}
-        proxy_url = self._get_url(**kwargs)
+        proxy_url = self._get_url(request.rel_url)
         _LOGGER.warning("Proxying %s %s to %s" % (request.method, request.url, proxy_url))
 
         if self._auth_required:
@@ -523,14 +524,10 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         else:
             return _convert_response(result)
 
-    def _get_url(self, **kwargs):
+    def _get_url(self, requested_route):
         """Get route to connect to."""
-        url = '%s://%s:%s%s' % (
-            'https' if self._secure else 'http', self._host, self._port, self.url)
-        if kwargs:
-            for key, value in kwargs.items():
-                url.replace('{%s}' % key, value)
-        return url
+        return '%s://%s:%s%s' % (
+            'https' if self._secure else 'http', self._host, self._port, requested_route)
 
     def _get_auth_header(self):
         """Get the authentication header."""
@@ -547,7 +544,7 @@ class GetRemoteApiProxy(AbstractRemoteApiProxy):
 
     @callback
     def get(self, request, **kwargs):
-        return self.perform_proxy(request, **request.match_info)
+        return self.perform_proxy(request, **kwargs)
 
 
 class PostRemoteApiProxy(AbstractRemoteApiProxy):
@@ -557,7 +554,7 @@ class PostRemoteApiProxy(AbstractRemoteApiProxy):
 
     @callback
     def post(self, request, **kwargs):
-        return self.perform_proxy(request, **request.match_info)
+        return self.perform_proxy(request, **kwargs)
 
 
 class PutRemoteApiProxy(AbstractRemoteApiProxy):
@@ -567,4 +564,4 @@ class PutRemoteApiProxy(AbstractRemoteApiProxy):
 
     @callback
     def put(self, request, **kwargs):
-        return self.perform_proxy(request, **request.match_info)
+        return self.perform_proxy(request, **kwargs)
