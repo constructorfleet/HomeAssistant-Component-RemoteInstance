@@ -408,7 +408,7 @@ class RemoteInstance(object):
 
 
 def register_proxy(hass, session, host, port, secure, access_token, password, route, method):
-    if str(route).startswith("http"):
+    if str(route).startswith("http") or '/local' in route:
         return
 
     proxy_route = hass.data[DOMAIN][method].get(route, None)
