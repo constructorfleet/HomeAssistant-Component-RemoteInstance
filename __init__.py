@@ -566,7 +566,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         self._host = host
         self._port = port
 
-        _LOGGER.warning("PROXY %s %s" % (method, self.url))
+        _LOGGER.warning("PROXY %s %s to %s %s" % (method, self.url, self._host, self._port))
 
         self._session = session
         self.add_proxy(
