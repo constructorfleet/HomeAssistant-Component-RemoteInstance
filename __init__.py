@@ -9,6 +9,7 @@ import asyncio
 import copy
 import logging
 import re
+import sys
 
 import aiohttp
 import homeassistant.components.websocket_api.auth as api
@@ -51,8 +52,7 @@ ATTR_ROUTE = 'route'
 ATTR_METHOD = 'method'
 ATTR_AUTH_REQUIRED = 'auth_required'
 
-DATA_ROUTES = 'routes'
-DATA_METHODS = 'methods'
+DATA_PROXIES = 'proxies'
 
 HEADER_KEY_PASSWORD = 'X-HA-access'
 HEADER_KEY_AUTHORIZATION = 'Authorization'
@@ -97,6 +97,13 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Set up the remote_homeassistant component."""
     conf = config.get(DOMAIN)
 
+    hass.data[DOMAIN] = {
+        DATA_PROXIES: {}
+    }
+
+    for method in HTTP_METHODS:
+        hass.data[DOMAIN][method] = {}
+
     for instance in conf.get(CONF_INSTANCES):
         connection = RemoteInstance(hass, instance)
         asyncio.ensure_future(connection.async_connect())
@@ -127,15 +134,6 @@ class RemoteInstance(object):
         self._session = aiohttp.ClientSession() if EVENT_ROUTE_REGISTERED in self._subscribe_to else None
 
         self.__id = 1
-
-        self._hass.data[DOMAIN] = {
-            DATA_METHODS: {}
-        }
-
-        for method in HTTP_METHODS:
-            self._hass.data[DOMAIN][method] = {
-                DATA_ROUTES: []
-            }
 
     @callback
     def _get_url(self, scheme, route):
@@ -316,7 +314,6 @@ class RemoteInstance(object):
             if ATTR_ENTITY_PICTURE in attr:
                 route = attr[ATTR_ENTITY_PICTURE].split('?')[0]
                 method = 'get'
-                auth_required = self._token or self._password
                 register_proxy(
                     self._hass,
                     self._session,
@@ -326,8 +323,7 @@ class RemoteInstance(object):
                     self._token,
                     self._password,
                     route,
-                    method,
-                    auth_required)
+                    method)
             if self._entity_prefix:
                 domain, object_id = split_entity_id(entity_id)
                 object_id = self._entity_prefix + object_id
@@ -357,7 +353,6 @@ class RemoteInstance(object):
                 data = message['event']['data']
                 route = str(data[ATTR_ROUTE]).split('?')[0]
                 method = data[ATTR_METHOD]
-                auth_required = data[ATTR_AUTH_REQUIRED]
                 register_proxy(
                     self._hass,
                     self._session,
@@ -367,8 +362,7 @@ class RemoteInstance(object):
                     self._token,
                     self._password,
                     route,
-                    method,
-                    auth_required)
+                    method)
             else:
                 event = message['event']
                 self._hass.bus.async_fire(
@@ -409,52 +403,45 @@ class RemoteInstance(object):
         await self._call(got_states, 'get_states')
 
 
-def register_proxy(hass, session, host, port, secure, access_token, password, route, method, auth_required):
-    if route in hass.data[DOMAIN][method][DATA_ROUTES]:
-        return
-    hass.data[DOMAIN][method][DATA_ROUTES].append(route)
-    if method == 'get':
-        proxy = GetRemoteApiProxy(
-            hass,
+def register_proxy(hass, session, host, port, secure, access_token, password, route, method):
+    proxy_route = hass.data[DOMAIN][method].get(route, None)
+    if proxy_route:
+        proxy_route.add_proxy(
             session,
             host,
             port,
             secure,
             access_token,
-            password,
-            route,
-            method,
-            auth_required
+            password
         )
-    elif method == 'post':
-        proxy = PostRemoteApiProxy(
-            hass,
-            session,
-            host,
-            port,
-            secure,
-            access_token,
-            password,
-            route,
-            method,
-            auth_required)
-    elif method == 'put':
-        proxy = PutRemoteApiProxy(
-            hass,
-            session,
-            host,
-            port,
-            secure,
-            access_token,
-            password,
-            route,
-            method,
-            auth_required)
     else:
-        return
-    _LOGGER.warning("PROXY %s" % proxy.__class__.__name__)
-    hass.http.register_view(proxy)
-    _LOGGER.warning("ROUTES %s" % str(hass.http.app))
+        proxy_class = {
+            'get': GetRemoteApiProxy,
+            "post": PostRemoteApiProxy,
+            "delete": DeleteRemoteApiProxy,
+            "put": PutRemoteApiProxy,
+            "patch": PatchRemoteApiProxy,
+            "head": HeadRemoteApiProxy,
+            "options": OptionsRemoteApiProxy
+        }.get(method, None)
+
+        if not proxy_class:
+            return
+
+        proxy_route = proxy_class(
+            hass,
+            session,
+            host,
+            port,
+            secure,
+            access_token,
+            password,
+            route,
+            method
+        )
+
+        hass.data[DOMAIN][method][route] = proxy_route
+        hass.http.register_view(proxy_route)
 
 
 def _convert_response(client_response):
@@ -464,48 +451,45 @@ def _convert_response(client_response):
         headers=client_response.headers)
 
 
-class AbstractRemoteApiProxy(HomeAssistantView):
-    """A proxy for remote API calls."""
+class ProxyData(object):
 
-    cors_allowed = True
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
-        """Initializing the proxy."""
-        if method not in HTTP_METHODS:
-            return
-
-        self.requires_auth = False
-        self.url = route if str(route).startswith('/') else '/%s' % route
-        self.name = self.url.replace('/', ':')[1:]
-
-        _LOGGER.warning("PROXY %s %s" % (method, self.url))
-
+    def __init__(self, session, host, port, secure, access_token, password):
         self._session = session
-        self._hass = hass
         self._host = host
         self._port = port
         self._secure = secure
         self._access_token = access_token
         self._password = password
-        self._auth_required = auth_required
-        self._method = method
+        self._auth_required = access_token or password
 
-    async def perform_proxy(self, request, **kwargs):
+    def get_url(self, requested_route):
+        """Get route to connect to."""
+        return '%s://%s:%s%s' % (
+            'https' if self._secure else 'http', self._host, self._port, requested_route)
+
+    def get_auth_header(self):
+        """Get the authentication header."""
+        if self._access_token:
+            return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self._access_token
+        else:
+            return HEADER_KEY_PASSWORD, self._password
+
+    async def perform_proxy(self, request):
         headers = {}
-        proxy_url = self._get_url(request.rel_url)
-        _LOGGER.warning("Proxying %s %s to %s" % (request.method, request.url, proxy_url))
+        method = request.method.lower()
+        proxy_url = self.get_url(request.rel_url)
+        _LOGGER.warning("Proxying %s %s to %s" % (method, request.url, proxy_url))
 
         if self._auth_required:
-            auth_header_key, auth_header_value = self._get_auth_header()
+            auth_header_key, auth_header_value = self.get_auth_header()
             headers[auth_header_key] = auth_header_value
 
-        request_method = getattr(self._session, self._method, None)
+        request_method = getattr(self._session, method, None)
         if not request_method:
-            _LOGGER.warning("Couldn't find method %s" % self._method)
-            raise HTTPNotFound()
+            _LOGGER.warning("Couldn't find method %s" % method)
+            return Response(body="Proxy route not found", status=404)
 
-        result = None
-        if self._method in HTTP_METHODS_WITH_PAYLOAD:
+        if method in HTTP_METHODS_WITH_PAYLOAD:
             result = await request_method(
                 proxy_url,
                 json=request.json(),
@@ -524,23 +508,70 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         else:
             return _convert_response(result)
 
-    def _get_url(self, requested_route):
-        """Get route to connect to."""
-        return '%s://%s:%s%s' % (
-            'https' if self._secure else 'http', self._host, self._port, requested_route)
 
-    def _get_auth_header(self):
-        """Get the authentication header."""
-        if self._access_token:
-            return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self._access_token
-        else:
-            return HEADER_KEY_PASSWORD, self._password
+class AbstractRemoteApiProxy(HomeAssistantView):
+    """A proxy for remote API calls."""
+
+    cors_allowed = True
+    proxies = []
+
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        """Initializing the proxy."""
+        if method not in HTTP_METHODS:
+            return
+
+        self.requires_auth = False
+        self.url = route if str(route).startswith('/') else '/%s' % route
+        self.name = self.url.replace('/', ':')[1:]
+        self._hass = hass
+        self._method = method
+
+        _LOGGER.warning("PROXY %s %s" % (method, self.url))
+
+        self._session = session
+        self.add_proxy(
+            session,
+            host,
+            port,
+            secure,
+            access_token,
+            password
+        )
+
+    def add_proxy(self,
+                  session,
+                  host,
+                  port,
+                  secure,
+                  access_token,
+                  password,):
+        self.proxies.append(ProxyData(
+            session,
+            host,
+            port,
+            secure,
+            access_token,
+            password
+        ))
+
+    async def perform_proxy(self, request, **kwargs):
+        tasks = [asyncio.ensure_future(proxy.perform_proxy(request)) for proxy in self.proxies]
+        results = self._hass.loop.run_until_complete(asyncio.gather(*tasks))
+
+        server_error_result = None
+        for result in results:
+            if result.status == 200:
+                return result
+            elif result.status == 500:
+                server_error_result = result
+
+        return server_error_result if server_error_result else Response(body="Proxy route not found", status=404)
 
 
 class GetRemoteApiProxy(AbstractRemoteApiProxy):
 
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
     @callback
     def get(self, request, **kwargs):
@@ -549,8 +580,8 @@ class GetRemoteApiProxy(AbstractRemoteApiProxy):
 
 class PostRemoteApiProxy(AbstractRemoteApiProxy):
 
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
     @callback
     def post(self, request, **kwargs):
@@ -559,9 +590,49 @@ class PostRemoteApiProxy(AbstractRemoteApiProxy):
 
 class PutRemoteApiProxy(AbstractRemoteApiProxy):
 
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method, auth_required):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method, auth_required)
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
     @callback
     def put(self, request, **kwargs):
+        return self.perform_proxy(request, **kwargs)
+
+
+class DeleteRemoteApiProxy(AbstractRemoteApiProxy):
+
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+
+    @callback
+    def delete(self, request, **kwargs):
+        return self.perform_proxy(request, **kwargs)
+
+
+class PatchRemoteApiProxy(AbstractRemoteApiProxy):
+
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+
+    @callback
+    def delete(self, request, **kwargs):
+        return self.perform_proxy(request, **kwargs)
+
+
+class HeadRemoteApiProxy(AbstractRemoteApiProxy):
+
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+
+    @callback
+    def head(self, request, **kwargs):
+        return self.perform_proxy(request, **kwargs)
+
+
+class OptionsRemoteApiProxy(AbstractRemoteApiProxy):
+
+    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+
+    @callback
+    def options(self, request, **kwargs):
         return self.perform_proxy(request, **kwargs)
