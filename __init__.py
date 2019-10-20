@@ -555,8 +555,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         ))
 
     async def perform_proxy(self, request, **kwargs):
-        tasks = [asyncio.ensure_future(proxy.perform_proxy(request)) for proxy in self.proxies]
-        results = asyncio.get_event_loop().run_until_complete(asyncio.gather(*tasks))
+        results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in self.proxies])
 
         server_error_result = None
         for result in results:
