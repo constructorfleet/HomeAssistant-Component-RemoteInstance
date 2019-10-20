@@ -460,7 +460,7 @@ def _convert_response(client_response):
 
 class ProxyData(object):
 
-    def __init__(self, session, host, port, secure, access_token, password):
+    def __init__(self, session, host, port, secure, access_token, password, route):
         self._session = session
         self._host = host
         self._port = port
@@ -468,6 +468,7 @@ class ProxyData(object):
         self._access_token = access_token
         self._password = password
         self._auth_required = access_token or password
+        self._route = route
 
     def get_url(self, requested_route):
         """Get route to connect to."""
@@ -480,6 +481,17 @@ class ProxyData(object):
             return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self._access_token
         else:
             return HEADER_KEY_PASSWORD, self._password
+
+    def copy_with_route(self, route):
+        return ProxyData(
+            self._session,
+            self._host,
+            self._port,
+            self._secure,
+            self._access_token,
+            self._password,
+            route
+        )
 
     async def perform_proxy(self, request):
         headers = {}
@@ -523,11 +535,11 @@ class ProxyData(object):
 
     def __eq__(self, other):
         if isinstance(other, ProxyData):
-            return self._host == other._host and self._port == other._port
+            return self._host == other._host and self._port == other._port and self._route == other._route
         return False
 
     def __hash__(self):
-        return hash('%s%s' % (self._host, self._port))
+        return hash('%s%s%s' % (self._host, self._port, self._route))
 
 
 class AbstractRemoteApiProxy(HomeAssistantView):
@@ -581,10 +593,12 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         server_error_result = None
         for result in results:
             response = result[ATTR_RESPONSE]
+            proxy = result[ATTR_PROXY]
             if response.status == 200:
+                self.add_proxy(proxy.copy_with_route(request.rel_url.split('?')[0]))
                 return response
-            else:
-                self.proxies.discard(result[ATTR_PROXY])
+            # else:
+            #     self.proxies.discard(proxy)
 
         return server_error_result if server_error_result else Response(body="Proxy route not found", status=404)
 
