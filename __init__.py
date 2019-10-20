@@ -15,7 +15,7 @@ import aiohttp
 import homeassistant.components.websocket_api.auth as api
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from aiohttp import ClientError, ClientResponse
+from aiohttp import ClientError, ClientResponse, ClientTimeout
 from aiohttp.web import Response
 from aiohttp.web_exceptions import HTTPNotFound
 from homeassistant.components.http import HomeAssistantView
@@ -133,7 +133,9 @@ class RemoteInstance(object):
         self._handlers = {}
         self._remove_listener = None
 
-        self._session = aiohttp.ClientSession() if EVENT_ROUTE_REGISTERED in self._subscribe_to else None
+        self._session = aiohttp.ClientSession(timeout=ClientTimeout(total=0.5*60)) \
+            if EVENT_ROUTE_REGISTERED in self._subscribe_to \
+            else None
 
         self.__id = 1
 
