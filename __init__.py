@@ -459,7 +459,6 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
 def _convert_response(client_response):
     return Response(
         body=client_response.content,
-        content_type=client_response.content_type,
         status=client_response.status,
         headers=client_response.headers)
 
