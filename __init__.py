@@ -495,14 +495,14 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             raise HTTPFound('/redirect')
 
         if self._method in HTTP_METHODS_WITH_PAYLOAD:
-            await request_method(
+            return await request_method(
                 self._get_url(),
                 json=request.json(),
                 params=request.query,
                 headers=headers
             )
         else:
-            await request_method(
+            return await request_method(
                 self._get_url(),
                 params=request.query,
                 headers=headers
