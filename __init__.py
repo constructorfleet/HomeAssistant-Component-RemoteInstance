@@ -312,8 +312,13 @@ class RemoteInstance(object):
 
         def state_changed(entity_id, state, attr):
             """Publish remote state change on local instance."""
+            domain, object_id = split_entity_id(entity_id)
+            if self._entity_prefix:
+                object_id = self._entity_prefix + object_id
+                entity_id = domain + '.' + object_id
+
             if ATTR_ENTITY_PICTURE in attr:
-                route = attr[ATTR_ENTITY_PICTURE].split('?')[0]
+                route = attr[ATTR_ENTITY_PICTURE].split('?')[0].replace(entity_id, '{entity_id}')
                 method = 'get'
                 register_proxy(
                     self._hass,
@@ -325,10 +330,6 @@ class RemoteInstance(object):
                     self._password,
                     route,
                     method)
-            if self._entity_prefix:
-                domain, object_id = split_entity_id(entity_id)
-                object_id = self._entity_prefix + object_id
-                entity_id = domain + '.' + object_id
 
             # Add local customization data
             if DATA_CUSTOMIZE in self._hass.data:
