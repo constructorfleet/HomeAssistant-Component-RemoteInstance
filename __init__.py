@@ -483,7 +483,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
     async def perform_proxy(self, request):
         headers = {}
-        _LOGGER.warning("Proxying %s %s" % (request.method, request.url))
+        _LOGGER.warning("Proxying %s %s to %s" % (request.method, request.url, self._get_url()))
 
         if self._auth_required:
             auth_header_key, auth_header_value = self._get_auth_header()
