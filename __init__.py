@@ -599,7 +599,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             response = result[ATTR_RESPONSE]
             proxy = result[ATTR_PROXY]
             if response.status == 200:
-                self.add_proxy(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
+                self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
                 return response
             # else:
             #     self.proxies.discard(proxy)
