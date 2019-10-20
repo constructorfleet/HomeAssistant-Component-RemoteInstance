@@ -524,7 +524,7 @@ class ProxyData(object):
         return False
 
     def __hash__(self):
-        return hash(self._host + self._port)
+        return hash('%s%s' % (self._host, self._port))
 
 
 class AbstractRemoteApiProxy(HomeAssistantView):
