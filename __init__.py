@@ -578,7 +578,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             if response.status == 200:
                 return response
             else:
-                self.proxies.remove(result[ATTR_PROXY])
+                self.proxies.discard(result[ATTR_PROXY])
 
         return server_error_result if server_error_result else Response(body="Proxy route not found", status=404)
 
