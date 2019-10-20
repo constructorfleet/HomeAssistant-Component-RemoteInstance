@@ -521,13 +521,31 @@ class ProxyData(object):
             ATTR_RESPONSE: response
         }
 
+    def copy_with_route(self, route):
+        return ProxyData(
+            self.session,
+            self.method,
+            self.host,
+            self.port,
+            self.secure,
+            self.access_token,
+            self.password,
+            route
+        )
+
+    def is_exact_match(self, method, host, port, route):
+        return self.method == method and self.host == host and self.port == port and self.route == route
+
     def __eq__(self, other):
         if isinstance(other, ProxyData):
-            return self.host == other.host and self.port == other.port and self.route == other.route
+            return self.host == other.host \
+                   and self.port == other.port \
+                   and self.method == other.method \
+                   and self.route == other.route
         return False
 
     def __hash__(self):
-        return hash('%s%s%s' % (self.host, self.port, self.route))
+        return hash('%s%s%s%s' % (self.host, self.port, self.method, self.route))
 
 
 class AbstractRemoteApiProxy(HomeAssistantView):
@@ -546,6 +564,8 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         self.name = self.url.replace('/', ':')[1:]
         self._hass = hass
         self._method = method
+        self._host = host
+        self._port = port
 
         _LOGGER.warning("PROXY %s %s" % (method, self.url))
 
@@ -582,24 +602,20 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         ))
 
     async def perform_proxy(self, request, **kwargs):
-        results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in self.proxies])
+        route = str(request.rel_url).split('?')[0]
+        exact_match_proxies = [proxy.is_exact_match(route) for proxy in self.proxies]
+        if len(exact_match_proxies) != 0:
+            results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in exact_match_proxies])
+        else:
+            results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in self.proxies])
 
         server_error_result = None
         for result in results:
             response = result[ATTR_RESPONSE]
             proxy = result[ATTR_PROXY]
             if response.status == 200:
-                register_proxy(
-                    self._hass,
-                    self._session,
-                    proxy.host,
-                    proxy.port,
-                    proxy.secure,
-                    proxy.access_token,
-                    proxy.password,
-                    str(request.rel_url).split('?')[0],
-                    proxy.method
-                )
+                if len(exact_match_proxies) == 0:
+                    self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
                 return response
             # else:
             #     self.proxies.discard(proxy)
