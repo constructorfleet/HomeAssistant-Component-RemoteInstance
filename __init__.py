@@ -408,6 +408,9 @@ class RemoteInstance(object):
 
 
 def register_proxy(hass, session, host, port, secure, access_token, password, route, method):
+    if str(route).startswith("http"):
+        return
+
     proxy_route = hass.data[DOMAIN][method].get(route, None)
     if proxy_route:
         proxy_route.add_proxy(
@@ -539,7 +542,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             return
 
         self.requires_auth = False
-        self.url = route if str(route).startswith('/') or str(route).startswith("http") else '/%s' % route
+        self.url = route if str(route).startswith('/') else '/%s' % route
         self.name = self.url.replace('/', ':')[1:]
         self._hass = hass
         self._method = method
