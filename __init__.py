@@ -523,6 +523,9 @@ class ProxyData(object):
             return self._host == other._host and self._port == other._port
         return False
 
+    def __hash__(self):
+        return hash(self._host + self._port)
+
 
 class AbstractRemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
