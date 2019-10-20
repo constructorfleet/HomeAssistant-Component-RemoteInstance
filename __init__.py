@@ -547,7 +547,7 @@ class GetRemoteApiProxy(AbstractRemoteApiProxy):
 
     @callback
     def get(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+        return self.perform_proxy(request, **request.match_info)
 
 
 class PostRemoteApiProxy(AbstractRemoteApiProxy):
@@ -557,7 +557,7 @@ class PostRemoteApiProxy(AbstractRemoteApiProxy):
 
     @callback
     def post(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+        return self.perform_proxy(request, **request.match_info)
 
 
 class PutRemoteApiProxy(AbstractRemoteApiProxy):
@@ -567,4 +567,4 @@ class PutRemoteApiProxy(AbstractRemoteApiProxy):
 
     @callback
     def put(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+        return self.perform_proxy(request, **request.match_info)
