@@ -109,8 +109,8 @@ class RemoteInstance(object):
         self._port = conf[CONF_PORT]
         self._secure = conf[CONF_SECURE]
         self._verify_ssl = conf[CONF_VERIFY_SSL]
-        self._token = conf[CONF_TOKEN]
-        self._password = conf[CONF_PASSWORD]
+        self._token = conf.get(CONF_TOKEN, None)
+        self._password = conf.get(CONF_PASSWORD, None)
         self._subscribe_to = conf[CONF_SUBSCRIBE_TO]
         self._entity_prefix = conf[CONF_ENTITY_PREFIX]
 
