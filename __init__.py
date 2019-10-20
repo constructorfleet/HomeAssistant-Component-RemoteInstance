@@ -51,6 +51,8 @@ EVENT_TYPE_REQUEST_ROUTES = 'request_routes'
 ATTR_ROUTE = 'route'
 ATTR_METHOD = 'method'
 ATTR_AUTH_REQUIRED = 'auth_required'
+ATTR_PROXY = 'proxy'
+ATTR_RESPONSE = 'result'
 
 DATA_PROXIES = 'proxies'
 
@@ -487,7 +489,7 @@ class ProxyData(object):
         request_method = getattr(self._session, method, None)
         if not request_method:
             _LOGGER.warning("Couldn't find method %s" % method)
-            return Response(body="Proxy route not found", status=404)
+            return self._result_dict(Response(body="Proxy route not found", status=404))
 
         if method in HTTP_METHODS_WITH_PAYLOAD:
             result = await request_method(
@@ -504,9 +506,15 @@ class ProxyData(object):
             )
 
         if result is None:
-            return Response(body="Unable to proxy request", status=500)
+            return self._result_dict(Response(body="Unable to proxy request", status=500))
         else:
-            return _convert_response(result)
+            return self._result_dict(_convert_response(result))
+
+    def _result_dict(self, response):
+        return {
+            ATTR_PROXY: self,
+            ATTR_RESPONSE: response
+        }
 
 
 class AbstractRemoteApiProxy(HomeAssistantView):
@@ -544,7 +552,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                   port,
                   secure,
                   access_token,
-                  password,):
+                  password, ):
         self.proxies.append(ProxyData(
             session,
             host,
@@ -559,10 +567,13 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
         server_error_result = None
         for result in results:
-            if result.status == 200:
-                return result
-            elif result.status == 500:
-                server_error_result = result
+            response = result[ATTR_RESPONSE]
+            if response.status == 200:
+                return response
+            elif response.status == 500:
+                server_error_result = response
+            elif response.status == 404:
+                self.proxies.remove(result[ATTR_PROXY])
 
         return server_error_result if server_error_result else Response(body="Proxy route not found", status=404)
 
