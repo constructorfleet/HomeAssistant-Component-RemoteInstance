@@ -518,12 +518,17 @@ class ProxyData(object):
             ATTR_RESPONSE: response
         }
 
+    def __eq__(self, other):
+        if isinstance(other, ProxyData):
+            return self._host == other._host and self._port == other._port
+        return False
+
 
 class AbstractRemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
 
     cors_allowed = True
-    proxies = []
+    proxies = set()
 
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         """Initializing the proxy."""
@@ -555,7 +560,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                   secure,
                   access_token,
                   password, ):
-        self.proxies.append(ProxyData(
+        self.proxies.add(ProxyData(
             session,
             host,
             port,
