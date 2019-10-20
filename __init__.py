@@ -8,16 +8,13 @@ https://home-assistant.io/components/remote_homeassistant/
 import asyncio
 import copy
 import logging
-import re
-import sys
 
 import aiohttp
 import homeassistant.components.websocket_api.auth as api
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from aiohttp import ClientError, ClientResponse, ClientTimeout
+from aiohttp import ClientError, ClientTimeout
 from aiohttp.web import Response
-from aiohttp.web_exceptions import HTTPNotFound
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (CONF_HOST, CONF_PORT)
@@ -133,7 +130,7 @@ class RemoteInstance(object):
         self._handlers = {}
         self._remove_listener = None
 
-        self._session = aiohttp.ClientSession(timeout=ClientTimeout(total=0.5*60)) \
+        self._session = aiohttp.ClientSession(timeout=ClientTimeout(total=0.5 * 60)) \
             if EVENT_ROUTE_REGISTERED in self._subscribe_to \
             else None
 
@@ -461,55 +458,44 @@ def _convert_response(client_response):
 
 class ProxyData(object):
 
-    def __init__(self, session, host, port, secure, access_token, password, route):
+    def __init__(self, session, method, host, port, secure, access_token, password, route):
         self._session = session
-        self._host = host
-        self._port = port
-        self._secure = secure
-        self._access_token = access_token
-        self._password = password
-        self._auth_required = access_token or password
-        self._route = route
+        self.method = method
+        self.host = host
+        self.port = port
+        self.secure = secure
+        self.access_token = access_token
+        self.password = password
+        self.auth_required = access_token or password
+        self.route = route
 
     def get_url(self, requested_route):
         """Get route to connect to."""
         return '%s://%s:%s%s' % (
-            'https' if self._secure else 'http', self._host, self._port, requested_route)
+            'https' if self.secure else 'http', self.host, self.port, requested_route)
 
     def get_auth_header(self):
         """Get the authentication header."""
-        if self._access_token:
-            return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self._access_token
+        if self.access_token:
+            return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self.access_token
         else:
-            return HEADER_KEY_PASSWORD, self._password
-
-    def copy_with_route(self, route):
-        return ProxyData(
-            self._session,
-            self._host,
-            self._port,
-            self._secure,
-            self._access_token,
-            self._password,
-            route
-        )
+            return HEADER_KEY_PASSWORD, self.password
 
     async def perform_proxy(self, request):
         headers = {}
-        method = request.method.lower()
         proxy_url = self.get_url(request.rel_url)
-        _LOGGER.warning("Proxying %s %s to %s" % (method, request.url, proxy_url))
+        _LOGGER.warning("Proxying %s %s to %s" % (self.method, request.url, proxy_url))
 
-        if self._auth_required:
+        if self.auth_required:
             auth_header_key, auth_header_value = self.get_auth_header()
             headers[auth_header_key] = auth_header_value
 
-        request_method = getattr(self._session, method, None)
+        request_method = getattr(self._session, self.method, None)
         if not request_method:
-            _LOGGER.warning("Couldn't find method %s" % method)
+            _LOGGER.warning("Couldn't find method %s" % self.method)
             return self._result_dict(Response(body="Proxy route not found", status=404))
 
-        if method in HTTP_METHODS_WITH_PAYLOAD:
+        if self.method in HTTP_METHODS_WITH_PAYLOAD:
             result = await request_method(
                 proxy_url,
                 json=request.json(),
@@ -536,11 +522,11 @@ class ProxyData(object):
 
     def __eq__(self, other):
         if isinstance(other, ProxyData):
-            return self._host == other._host and self._port == other._port and self._route == other._route
+            return self.host == other.host and self.port == other.port and self.route == other.route
         return False
 
     def __hash__(self):
-        return hash('%s%s%s' % (self._host, self._port, self._route))
+        return hash('%s%s%s' % (self.host, self.port, self.route))
 
 
 class AbstractRemoteApiProxy(HomeAssistantView):
@@ -565,6 +551,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         self._session = session
         self.add_proxy(
             session,
+            method,
             host,
             port,
             secure,
@@ -575,6 +562,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
     def add_proxy(self,
                   session,
+                  method,
                   host,
                   port,
                   secure,
@@ -583,6 +571,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                   route):
         self.proxies.add(ProxyData(
             session,
+            method,
             host,
             port,
             secure,
@@ -599,7 +588,17 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             response = result[ATTR_RESPONSE]
             proxy = result[ATTR_PROXY]
             if response.status == 200:
-                self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
+                register_proxy(
+                    self._hass,
+                    self._session,
+                    proxy.host,
+                    proxy.port,
+                    proxy.secure,
+                    proxy.access_token,
+                    proxy.password,
+                    str(request.rel_url).split('?')[0],
+                    proxy.method
+                )
                 return response
             # else:
             #     self.proxies.discard(proxy)
