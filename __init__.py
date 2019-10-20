@@ -412,6 +412,7 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
     if proxy_route:
         proxy_route.add_proxy(
             session,
+            method,
             host,
             port,
             secure,
