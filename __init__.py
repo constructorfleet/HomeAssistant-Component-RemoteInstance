@@ -603,7 +603,8 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
     async def perform_proxy(self, request, **kwargs):
         route = str(request.rel_url).split('?')[0]
-        exact_match_proxies = [proxy.is_exact_match(route) for proxy in self.proxies]
+        exact_match_proxies = [proxy.is_exact_match(self._method, self._host, self._port, route) for proxy in
+                               self.proxies]
         if len(exact_match_proxies) != 0:
             results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in exact_match_proxies])
         else:
