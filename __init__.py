@@ -559,7 +559,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                   port,
                   secure,
                   access_token,
-                  password, ):
+                  password):
         self.proxies.add(ProxyData(
             session,
             host,
