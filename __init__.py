@@ -300,10 +300,20 @@ class RemoteInstance(object):
         def state_changed(entity_id, state, attr):
             """Publish remote state change on local instance."""
             if ATTR_ENTITY_PICTURE in attr:
-                self._hass.http.register_redirect(
-                    attr[ATTR_ENTITY_PICTURE],
-                    self._get_url("http", attr[ATTR_ENTITY_PICTURE])
-                )
+                route = attr[ATTR_ROUTE].split('?')[0]
+                method = 'get'
+                auth_required = self._token or self._password
+                register_proxy(
+                    self._hass,
+                    self._session,
+                    self._host,
+                    self._port,
+                    self._secure,
+                    self._token,
+                    self._password,
+                    route,
+                    method,
+                    auth_required)
             if self._entity_prefix:
                 domain, object_id = split_entity_id(entity_id)
                 object_id = self._entity_prefix + object_id
