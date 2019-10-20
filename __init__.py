@@ -523,7 +523,7 @@ class ProxyData(object):
 
     def copy_with_route(self, route):
         return ProxyData(
-            self.session,
+            self._session,
             self.method,
             self.host,
             self.port,
