@@ -15,7 +15,7 @@ import aiohttp
 import homeassistant.components.websocket_api.auth as api
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from aiohttp import ClientError, ClientTimeout, web
+from aiohttp import ClientError, ClientTimeout, web, hdrs
 from aiohttp.web import Response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
@@ -522,23 +522,30 @@ class ProxyData(object):
             return await self._convert_response(result)
 
     async def _convert_response(self, client_response):
-        response_body = await client_response.read()
-        try:
-            data = json.loads(response_body)
-        except JSONDecodeError as exc:
-            return {
-                ATTR_PROXY: self,
-                ATTR_RESPONSE: Response(
-                    body=client_response.content,
-                    status=client_response.status,
-                    headers=client_response.headers),
-                ATTR_STATUS: client_response.status
-            }
+        if 'json' in client_response.headers.get(hdrs.CONTENT_TYPE, '').lower():
+            response_body = await client_response.read()
+            try:
+                data = json.loads(response_body)
+                return {
+                    ATTR_PROXY: self,
+                    ATTR_RESPONSE: data,
+                    ATTR_STATUS: client_response.status
+                }
+            except JSONDecodeError as exc:
+                return {
+                    ATTR_PROXY: self,
+                    ATTR_RESPONSE: "Unable to parse JSON",
+                    ATTR_STATUS: 500
+                }
         return {
             ATTR_PROXY: self,
-            ATTR_RESPONSE: data,
+            ATTR_RESPONSE: Response(
+                body=client_response.content,
+                status=client_response.status,
+                headers=client_response.headers),
             ATTR_STATUS: client_response.status
         }
+
 
     def copy_with_route(self, route):
         return ProxyData(
