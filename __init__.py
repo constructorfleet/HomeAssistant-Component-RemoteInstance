@@ -7,7 +7,9 @@ https://home-assistant.io/components/remote_homeassistant/
 
 import asyncio
 import copy
+import json
 import logging
+from json import JSONDecodeError
 
 import aiohttp
 import homeassistant.components.websocket_api.auth as api
@@ -15,7 +17,6 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from aiohttp import ClientError, ClientTimeout
 from aiohttp.web import Response
-from aiohttp.web_response import json_response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (CONF_HOST, CONF_PORT)
@@ -52,6 +53,8 @@ ATTR_METHOD = 'method'
 ATTR_AUTH_REQUIRED = 'auth_required'
 ATTR_PROXY = 'proxy'
 ATTR_RESPONSE = 'result'
+ATTR_STATUS = 'status'
+ATTR_BODY = 'body'
 
 DATA_PROXIES = 'proxies'
 
@@ -461,10 +464,18 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
 
 
 async def _convert_response(client_response):
-    return Response(
-        body= await client_response.read(),
-        status=client_response.status,
-        headers=client_response.headers)
+    response_body = await client_response.read()
+    try:
+        data = json.loads(response_body)
+    except JSONDecodeError as exc:
+        return {
+            ATTR_STATUS: 500,
+            ATTR_BODY: {'message': str(exc)}
+        }
+    return {
+        ATTR_STATUS: 200,
+        ATTR_BODY: data
+    }
 
 
 class ProxyData(object):
@@ -504,36 +515,47 @@ class ProxyData(object):
         request_method = getattr(self._session, self.method, None)
         if not request_method:
             _LOGGER.warning("Couldn't find method %s" % self.method)
-            return self._result_dict(Response(body="Proxy route not found", status=404))
+            return self._result_dict({
+                ATTR_STATUS: 404,
+                ATTR_BODY: {'message': "Unable to find proxy for request"}
+            })
 
         if self.method in HTTP_METHODS_WITH_PAYLOAD:
             if 'json' in str(request.content_type).lower():
                 try:
                     data = await request.json()
                 except ValueError:
-                    return self._result_dict(Response(body="Unable to parse JSON", status=400))
-                async with request_method(proxy_url,
-                                          json=data,
-                                          params=request.query,
-                                          headers=headers) as r:
-                    body = await r.json()
-
+                    return self._result_dict({
+                        ATTR_STATUS: 400,
+                        ATTR_BODY: {'message': "Unable to parse json request"}
+                    })
+                result = await request_method(
+                    proxy_url,
+                    json=data,
+                    params=request.query,
+                    headers=headers
+                )
             else:
-                async with request_method(proxy_url,
-                                          data=await request.read(),
-                                          params=request.query,
-                                          headers=headers) as r:
-                    body = await r.json()
+                result = await request_method(
+                    proxy_url,
+                    data=await request.read(),
+                    params=request.query,
+                    headers=headers
+                )
         else:
-            async with request_method(proxy_url,
-                                      params=request.query,
-                                      headers=headers) as r:
-                body = await r.json()
+            result = await request_method(
+                proxy_url,
+                params=request.query,
+                headers=headers
+            )
 
-        if body is None:
-            return self._result_dict(Response(body="Unable to proxy request", status=500))
+        if result is None:
+            return self._result_dict({
+                ATTR_STATUS: 500,
+                ATTR_BODY: {'message': "Unable to proxy request"}
+                })
         else:
-            return self._result_dict(json_response(body))
+            return self._result_dict(_convert_response(result))
 
     def _result_dict(self, response):
         return {
@@ -643,16 +665,16 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         for result in results:
             response = result[ATTR_RESPONSE]
             proxy = result[ATTR_PROXY]
-            _LOGGER.warning("Result %s %s" % (response.status, str(response)))
-            if response.status == 200:
+            _LOGGER.warning("Result %s %s" % (response[ATTR_STATUS], str(response[ATTR_BODY])))
+            if response[ATTR_STATUS] == 200:
                 _LOGGER.warning("Got 200")
                 if len(exact_match_proxies) == 0:
                     self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
-                return response
+                return self.json(response[ATTR_BODY])
             # else:
             #     self.proxies.discard(proxy)
 
-        return server_error_result if server_error_result else Response(body="Proxy route not found", status=404)
+        return self.json_message("Unable to proxy request", 500)
 
 
 class GetRemoteApiProxy(AbstractRemoteApiProxy):
