@@ -555,7 +555,7 @@ class ProxyData(object):
                 ATTR_BODY: {'message': "Unable to proxy request"}
                 })
         else:
-            return self._result_dict(_convert_response(result))
+            return self._result_dict(await _convert_response(result))
 
     def _result_dict(self, response):
         return {
