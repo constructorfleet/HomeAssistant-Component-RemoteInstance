@@ -534,7 +534,7 @@ class ProxyData(object):
         if result is None:
             return self._result_dict(Response(body="Unable to proxy request", status=500))
         else:
-            return self._result_dict(_convert_response(result))
+            return self._result_dict(await _convert_response(result))
 
     def _result_dict(self, response):
         return {
