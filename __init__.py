@@ -665,7 +665,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         for result in results:
             response = result[ATTR_RESPONSE]
             proxy = result[ATTR_PROXY]
-            _LOGGER.warning("Result %s %s" % (response[ATTR_STATUS], str(response[ATTR_BODY])))
+            _LOGGER.warning("Result %s" % str(response))
             if response[ATTR_STATUS] == 200:
                 _LOGGER.warning("Got 200")
                 if len(exact_match_proxies) == 0:
