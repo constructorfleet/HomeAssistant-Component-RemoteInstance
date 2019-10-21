@@ -572,13 +572,13 @@ class AbstractRemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
 
     cors_allowed = True
-    proxies = set()
 
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         """Initializing the proxy."""
         if method not in HTTP_METHODS:
             return
 
+        self.proxies = set()
         self.requires_auth = False
         self.url = route if str(route).startswith('/') else '/%s' % route
         self.name = self.url.replace('/', ':')[1:]
@@ -621,14 +621,17 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             password,
             route
         ))
+        _LOGGER.warning('Current proxies for %s: %s' % (route, str(self.proxies)))
 
     async def perform_proxy(self, request, **kwargs):
         route = str(request.rel_url).split('?')[0]
         exact_match_proxies = [proxy for proxy in self.proxies if
                                proxy.is_exact_match(self._method, self._host, self._port, route)]
         if len(exact_match_proxies) != 0:
+            _LOGGER.warning("Found %s proxies for %s" % (str(exact_match_proxies), route))
             results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in exact_match_proxies])
         else:
+            _LOGGER.warning("Using %s proxies for %s" % (str(self.proxies), route))
             results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in self.proxies])
 
         server_error_result = None
