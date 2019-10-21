@@ -7,7 +7,6 @@ https://home-assistant.io/components/remote_homeassistant/
 
 import asyncio
 import copy
-import json
 import logging
 
 import aiohttp
@@ -18,7 +17,7 @@ from aiohttp import ClientError, ClientTimeout
 from aiohttp.web import Response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
-from homeassistant.const import (CONF_HOST, CONF_PORT, CONF_NAME)
+from homeassistant.const import (CONF_HOST, CONF_PORT)
 from homeassistant.const import (EVENT_HOMEASSISTANT_STOP, EVENT_SERVICE_REGISTERED, ATTR_DOMAIN, ATTR_SERVICE,
                                  EVENT_CALL_SERVICE, ATTR_ENTITY_PICTURE, EVENT_STATE_CHANGED)
 from homeassistant.core import EventOrigin, split_entity_id
@@ -36,6 +35,7 @@ CONF_PASSWORD = 'api_password'
 CONF_SUBSCRIBE_TO = 'subscribe_to'
 CONF_ENTITY_PREFIX = 'entity_prefix'
 CONF_PROXY_API = 'proxy_api'
+CONF_PROXY_COMPONENTS = 'proxy_components'
 
 DOMAIN = 'remote_homeassistant'
 
@@ -51,7 +51,6 @@ ATTR_METHOD = 'method'
 ATTR_AUTH_REQUIRED = 'auth_required'
 ATTR_PROXY = 'proxy'
 ATTR_RESPONSE = 'result'
-ATTR_INSTANCE_NAME = 'instance_name'
 
 DATA_PROXIES = 'proxies'
 
@@ -74,7 +73,6 @@ HTTP_METHODS_WITH_PAYLOAD = [
 ]
 
 INSTANCES_SCHEMA = vol.Schema({
-    vol.Required(CONF_NAME): cv.string,
     vol.Required(CONF_HOST): cv.string,
     vol.Optional(CONF_PORT, default=8123): cv.port,
     vol.Optional(CONF_SECURE, default=False): cv.boolean,
@@ -82,9 +80,10 @@ INSTANCES_SCHEMA = vol.Schema({
     vol.Exclusive(CONF_TOKEN, 'auth'): cv.string,
     vol.Exclusive(CONF_PASSWORD, 'auth'): cv.string,
     vol.Optional(CONF_SUBSCRIBE_TO,
-                 default=DEFAULT_SUBSCRIBED_EVENTS): cv.ensure_list,
+                 default=DEFAULT_SUBSCRIBED_EVENTS): vol.All(cv.ensure_list, [cv.string]),
     vol.Optional(CONF_ENTITY_PREFIX, default=DEFAULT_ENTITY_PREFIX): cv.string,
-    vol.Optional(CONF_PROXY_API, default=False): cv.boolean
+    vol.Optional(CONF_PROXY_API, default=False): cv.boolean,
+    vol.Optional(CONF_PROXY_COMPONENTS, default=[]): vol.All(cv.ensure_list, [cv.string])
 })
 
 CONFIG_SCHEMA = vol.Schema({
@@ -119,7 +118,6 @@ class RemoteInstance(object):
     def __init__(self, hass, conf):
         """Initialize the connection."""
         self._hass = hass
-        self._name = conf[CONF_NAME]
         self._host = conf[CONF_HOST]
         self._port = conf[CONF_PORT]
         self._secure = conf[CONF_SECURE]
@@ -128,6 +126,8 @@ class RemoteInstance(object):
         self._password = conf.get(CONF_PASSWORD, None)
         self._subscribe_to = conf[CONF_SUBSCRIBE_TO]
         self._entity_prefix = conf[CONF_ENTITY_PREFIX]
+        self._proxy_api = conf[CONF_PROXY_API]
+        self._proxy_components = conf[CONF_PROXY_COMPONENTS]
 
         self._connection = None
         self._entities = set()
@@ -135,7 +135,7 @@ class RemoteInstance(object):
         self._remove_listener = None
 
         self._session = aiohttp.ClientSession(timeout=ClientTimeout(total=0.5 * 60)) \
-            if EVENT_ROUTE_REGISTERED in self._subscribe_to \
+            if EVENT_ROUTE_REGISTERED in self._subscribe_to and self._proxy_api \
             else None
 
         self.__id = 1
@@ -321,8 +321,9 @@ class RemoteInstance(object):
                 object_id = self._entity_prefix + object_id
                 entity_id = domain + '.' + object_id
 
-            if ATTR_ENTITY_PICTURE in attr:
-                route = attr[ATTR_ENTITY_PICTURE].split('?')[0].replace(entity_id, '{entity_id}')
+            route = attr.get(ATTR_ENTITY_PICTURE, '').split('?')[0].replace(entity_id, '{entity_id}')
+            if ATTR_ENTITY_PICTURE in attr and self._proxy_api and any(
+                    [proxy_component for proxy_component in self._proxy_components if proxy_component in route]):
                 method = 'get'
                 register_proxy(
                     self._hass,
@@ -355,12 +356,13 @@ class RemoteInstance(object):
                 state = message['event']['data']['new_state']['state']
                 attr = message['event']['data']['new_state']['attributes']
                 state_changed(entity_id, state, attr)
-            elif message['event']['event_type'] == EVENT_ROUTE_REGISTERED:
+            elif message['event']['event_type'] == EVENT_ROUTE_REGISTERED and self._proxy_api:
                 data = message['event']['data']
-                if data.get(ATTR_INSTANCE_NAME, None) == self._name:
-                    route = str(data[ATTR_ROUTE]).split('?')[0]
+                route = str(data[ATTR_ROUTE]).split('?')[0]
+                if any(
+                    [proxy_component for proxy_component in self._proxy_components if proxy_component in route]
+                ):
                     method = data[ATTR_METHOD]
-
                     register_proxy(
                         self._hass,
                         self._session,
@@ -504,19 +506,24 @@ class ProxyData(object):
             return self._result_dict(Response(body="Proxy route not found", status=404))
 
         if self.method in HTTP_METHODS_WITH_PAYLOAD:
-            body = await request.text()
-            json_content = None
-            try:
-                json_content = json.loads(body) if body else None
-            except ValueError:
-                _LOGGER.warning("Not json")
-            result = await request_method(
-                proxy_url,
-                json=json_content if json_content else None,
-                data=body if body else None,
-                params=request.query,
-                headers=headers
-            )
+            if 'json' in str(request.content_type).lower():
+                try:
+                    data = await request.json()
+                except ValueError:
+                    return self._result_dict(Response(body="Unable to parse JSON", status=400))
+                result = await request_method(
+                    proxy_url,
+                    json=data,
+                    params=request.query,
+                    headers=headers
+                )
+            else:
+                result = await request_method(
+                    proxy_url,
+                    data=await request.read(),
+                    params=request.query,
+                    headers=headers
+                )
         else:
             result = await request_method(
                 proxy_url,
@@ -642,9 +649,8 @@ class GetRemoteApiProxy(AbstractRemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
-    @callback
-    def get(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+    async def get(self, request, **kwargs):
+        return await self.perform_proxy(request, **kwargs)
 
 
 class PostRemoteApiProxy(AbstractRemoteApiProxy):
@@ -652,9 +658,8 @@ class PostRemoteApiProxy(AbstractRemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
-    @callback
-    def post(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+    async def post(self, request, **kwargs):
+        return await self.perform_proxy(request, **kwargs)
 
 
 class PutRemoteApiProxy(AbstractRemoteApiProxy):
@@ -662,9 +667,8 @@ class PutRemoteApiProxy(AbstractRemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
-    @callback
-    def put(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+    async def put(self, request, **kwargs):
+        return await self.perform_proxy(request, **kwargs)
 
 
 class DeleteRemoteApiProxy(AbstractRemoteApiProxy):
@@ -672,9 +676,8 @@ class DeleteRemoteApiProxy(AbstractRemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
-    @callback
-    def delete(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+    async def delete(self, request, **kwargs):
+        return await self.perform_proxy(request, **kwargs)
 
 
 class PatchRemoteApiProxy(AbstractRemoteApiProxy):
@@ -682,9 +685,8 @@ class PatchRemoteApiProxy(AbstractRemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
-    @callback
-    def delete(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+    async def delete(self, request, **kwargs):
+        return await self.perform_proxy(request, **kwargs)
 
 
 class HeadRemoteApiProxy(AbstractRemoteApiProxy):
@@ -692,9 +694,8 @@ class HeadRemoteApiProxy(AbstractRemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
-    @callback
-    def head(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+    async def head(self, request, **kwargs):
+        return await self.perform_proxy(request, **kwargs)
 
 
 class OptionsRemoteApiProxy(AbstractRemoteApiProxy):
@@ -702,6 +703,5 @@ class OptionsRemoteApiProxy(AbstractRemoteApiProxy):
     def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
         super().__init__(hass, session, host, port, secure, access_token, password, route, method)
 
-    @callback
-    def options(self, request, **kwargs):
-        return self.perform_proxy(request, **kwargs)
+    async def options(self, request, **kwargs):
+        return await self.perform_proxy(request, **kwargs)
