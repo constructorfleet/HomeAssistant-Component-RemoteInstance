@@ -552,7 +552,6 @@ class ProxyData(object):
                     proxy_url,
                     params=request.query,
                     headers=headers
-                )
 
         if result is None:
             return self._result_dict(Response(body="Unable to proxy request", status=500))
