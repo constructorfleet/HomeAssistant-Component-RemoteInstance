@@ -16,6 +16,7 @@ import homeassistant.components.websocket_api.auth as api
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from aiohttp import ClientError, ClientTimeout
+from aiohttp.abc import StreamResponse
 from aiohttp.web import Response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
@@ -364,7 +365,7 @@ class RemoteInstance(object):
                 data = message['event']['data']
                 route = str(data[ATTR_ROUTE]).split('?')[0]
                 if any(
-                    [proxy_component for proxy_component in self._proxy_components if proxy_component in route]
+                        [proxy_component for proxy_component in self._proxy_components if proxy_component in route]
                 ):
                     method = data[ATTR_METHOD]
                     register_proxy(
@@ -463,21 +464,6 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
         hass.http.register_view(proxy_route)
 
 
-async def _convert_response(client_response):
-    response_body = await client_response.read()
-    try:
-        data = json.loads(response_body)
-    except JSONDecodeError as exc:
-        return {
-            ATTR_STATUS: 500,
-            ATTR_BODY: {'message': str(exc)}
-        }
-    return {
-        ATTR_STATUS: 200,
-        ATTR_BODY: data
-    }
-
-
 class ProxyData(object):
 
     def __init__(self, session, method, host, port, secure, access_token, password, route):
@@ -515,7 +501,7 @@ class ProxyData(object):
         request_method = getattr(self._session, self.method, None)
         if not request_method:
             _LOGGER.warning("Couldn't find method %s" % self.method)
-            return self._result_dict(Response(body="Proxy route not found", status=404))
+            return Response(body="Proxy route not found", status=404)
 
         if self.method in HTTP_METHODS_WITH_PAYLOAD:
             result = await request_method(
@@ -532,14 +518,27 @@ class ProxyData(object):
             )
 
         if result is None:
-            return self._result_dict(Response(body="Unable to proxy request", status=500))
+            return Response(body="Unable to proxy request", status=500)
         else:
-            return self._result_dict(await _convert_response(result))
+            return await self._convert_response(result)
 
-    def _result_dict(self, response):
+    async def _convert_response(self, client_response):
+        response_body = await client_response.read()
+        try:
+            data = json.loads(response_body)
+        except JSONDecodeError as exc:
+            return {
+                ATTR_PROXY: self,
+                ATTR_RESPONSE: Response(
+                    body=client_response.content,
+                    status=client_response.status,
+                    headers=client_response.headers),
+                ATTR_STATUS: client_response.status
+            }
         return {
             ATTR_PROXY: self,
-            ATTR_RESPONSE: response
+            ATTR_RESPONSE: data,
+            ATTR_STATUS: client_response.status
         }
 
     def copy_with_route(self, route):
@@ -642,16 +641,15 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
         server_error_result = None
         for result in results:
-            response = result[ATTR_RESPONSE]
-            proxy = result[ATTR_PROXY]
-            _LOGGER.warning("Result %s" % str(response))
-            if response[ATTR_STATUS] == 200:
-                _LOGGER.warning("Got 200")
+            if result[ATTR_STATUS] == 200:
+                proxy = result[ATTR_PROXY]
                 if len(exact_match_proxies) == 0:
                     self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
-                return self.json(response[ATTR_BODY])
-            # else:
-            #     self.proxies.discard(proxy)
+                if isinstance(result[ATTR_RESPONSE], StreamResponse):
+                    return result[ATTR_RESPONSE]
+                return self.json(result[ATTR_RESPONSE])
+                # else:
+                #     self.proxies.discard(proxy)
 
         return self.json_message("Unable to proxy request", 500)
 
