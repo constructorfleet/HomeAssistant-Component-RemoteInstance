@@ -17,7 +17,7 @@ from aiohttp import ClientError, ClientTimeout
 from aiohttp.web import Response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
-from homeassistant.const import (CONF_HOST, CONF_PORT)
+from homeassistant.const import (CONF_HOST, CONF_PORT, CONF_NAME)
 from homeassistant.const import (EVENT_HOMEASSISTANT_STOP, EVENT_SERVICE_REGISTERED, ATTR_DOMAIN, ATTR_SERVICE,
                                  EVENT_CALL_SERVICE, ATTR_ENTITY_PICTURE, EVENT_STATE_CHANGED)
 from homeassistant.core import EventOrigin, split_entity_id
@@ -50,6 +50,7 @@ ATTR_METHOD = 'method'
 ATTR_AUTH_REQUIRED = 'auth_required'
 ATTR_PROXY = 'proxy'
 ATTR_RESPONSE = 'result'
+ATTR_INSTANCE_NAME = 'instance_name'
 
 DATA_PROXIES = 'proxies'
 
@@ -72,6 +73,7 @@ HTTP_METHODS_WITH_PAYLOAD = [
 ]
 
 INSTANCES_SCHEMA = vol.Schema({
+    vol.Required(CONF_NAME): cv.string,
     vol.Required(CONF_HOST): cv.string,
     vol.Optional(CONF_PORT, default=8123): cv.port,
     vol.Optional(CONF_SECURE, default=False): cv.boolean,
@@ -116,6 +118,7 @@ class RemoteInstance(object):
     def __init__(self, hass, conf):
         """Initialize the connection."""
         self._hass = hass
+        self._name = conf[CONF_NAME]
         self._host = conf[CONF_HOST]
         self._port = conf[CONF_PORT]
         self._secure = conf[CONF_SECURE]
@@ -353,18 +356,20 @@ class RemoteInstance(object):
                 state_changed(entity_id, state, attr)
             elif message['event']['event_type'] == EVENT_ROUTE_REGISTERED:
                 data = message['event']['data']
-                route = str(data[ATTR_ROUTE]).split('?')[0]
-                method = data[ATTR_METHOD]
-                register_proxy(
-                    self._hass,
-                    self._session,
-                    self._host,
-                    self._port,
-                    self._secure,
-                    self._token,
-                    self._password,
-                    route,
-                    method)
+                if data.get(ATTR_INSTANCE_NAME, None) == self._name:
+                    route = str(data[ATTR_ROUTE]).split('?')[0]
+                    method = data[ATTR_METHOD]
+
+                    register_proxy(
+                        self._hass,
+                        self._session,
+                        self._host,
+                        self._port,
+                        self._secure,
+                        self._token,
+                        self._password,
+                        route,
+                        method)
             else:
                 event = message['event']
                 self._hass.bus.async_fire(
