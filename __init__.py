@@ -15,6 +15,7 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from aiohttp import ClientError, ClientTimeout
 from aiohttp.web import Response
+from aiohttp.web_response import json_response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (CONF_HOST, CONF_PORT)
@@ -511,30 +512,28 @@ class ProxyData(object):
                     data = await request.json()
                 except ValueError:
                     return self._result_dict(Response(body="Unable to parse JSON", status=400))
-                result = await request_method(
-                    proxy_url,
-                    json=data,
-                    params=request.query,
-                    headers=headers
-                )
-            else:
-                result = await request_method(
-                    proxy_url,
-                    data=await request.read(),
-                    params=request.query,
-                    headers=headers
-                )
-        else:
-            result = await request_method(
-                proxy_url,
-                params=request.query,
-                headers=headers
-            )
+                async with request_method(proxy_url,
+                                          json=data,
+                                          params=request.query,
+                                          headers=headers) as r:
+                    body = await r.json()
 
-        if result is None:
+            else:
+                async with request_method(proxy_url,
+                                          data=await request.read(),
+                                          params=request.query,
+                                          headers=headers) as r:
+                    body = await r.json()
+        else:
+            async with request_method(proxy_url,
+                                      params=request.query,
+                                      headers=headers) as r:
+                body = await r.json()
+
+        if body is None:
             return self._result_dict(Response(body="Unable to proxy request", status=500))
         else:
-            return self._result_dict(await _convert_response(result))
+            return self._result_dict(json_response(body))
 
     def _result_dict(self, response):
         return {
