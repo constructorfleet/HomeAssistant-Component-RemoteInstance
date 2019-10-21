@@ -7,6 +7,7 @@ https://home-assistant.io/components/remote_homeassistant/
 
 import asyncio
 import copy
+import json
 import logging
 
 import aiohttp
@@ -503,9 +504,16 @@ class ProxyData(object):
             return self._result_dict(Response(body="Proxy route not found", status=404))
 
         if self.method in HTTP_METHODS_WITH_PAYLOAD:
+            body = await request.text()
+            json_content = None
+            try:
+                json_content = json.loads(body) if body else None
+            except ValueError:
+                _LOGGER.warning("Not json")
             result = await request_method(
                 proxy_url,
-                json= await request.json(),
+                json=json_content if json_content else None,
+                data=body if body else None,
                 params=request.query,
                 headers=headers
             )
