@@ -567,6 +567,12 @@ class ProxyData(object):
     def __hash__(self):
         return hash('%s%s%s' % (self.host, self.port, self.method))
 
+    def __str__(self) -> str:
+        return "%s %s%s%s" % (self.method, self.host, self.port, self.route)
+
+    def __repr__(self) -> str:
+        return "%s %s%s%s" % (self.method, self.host, self.port, self.route)
+
 
 class AbstractRemoteApiProxy(HomeAssistantView):
     """A proxy for remote API calls."""
