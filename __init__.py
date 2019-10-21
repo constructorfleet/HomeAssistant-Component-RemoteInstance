@@ -644,7 +644,9 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         for result in results:
             response = result[ATTR_RESPONSE]
             proxy = result[ATTR_PROXY]
+            _LOGGER.warning("Result %s %s" % (response.status, str(response)))
             if response.status == 200:
+                _LOGGER.warning("Got 200")
                 if len(exact_match_proxies) == 0:
                     self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
                 return response
