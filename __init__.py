@@ -506,7 +506,7 @@ class ProxyData(object):
     async def perform_proxy(self, request):
         headers = {}
         proxy_url = self.get_url(request.path)
-        _LOGGER.warning("Proxying %s %s to %s%s" % (self.method, request.url, proxy_url, '?%s' % request.query_string))
+        _LOGGER.warning("Proxying %s %s to %s" % (self.method, request.url, proxy_url))
 
         if self.auth_required:
             auth_header_key, auth_header_value = self.get_auth_header()
@@ -515,33 +515,15 @@ class ProxyData(object):
         request_method = getattr(self._session, self.method, None)
         if not request_method:
             _LOGGER.warning("Couldn't find method %s" % self.method)
-            return self._result_dict({
-                ATTR_STATUS: 404,
-                ATTR_BODY: {'message': "Unable to find proxy for request"}
-            })
+            return self._result_dict(Response(body="Proxy route not found", status=404))
 
         if self.method in HTTP_METHODS_WITH_PAYLOAD:
-            if 'json' in str(request.content_type).lower():
-                try:
-                    data = await request.json()
-                except ValueError:
-                    return self._result_dict({
-                        ATTR_STATUS: 400,
-                        ATTR_BODY: {'message': "Unable to parse json request"}
-                    })
-                result = await request_method(
-                    proxy_url,
-                    json=data,
-                    params=request.query,
-                    headers=headers
-                )
-            else:
-                result = await request_method(
-                    proxy_url,
-                    data=await request.read(),
-                    params=request.query,
-                    headers=headers
-                )
+            result = await request_method(
+                proxy_url,
+                json=request.json(),
+                params=request.query,
+                headers=headers
+            )
         else:
             result = await request_method(
                 proxy_url,
@@ -550,12 +532,9 @@ class ProxyData(object):
             )
 
         if result is None:
-            return self._result_dict({
-                ATTR_STATUS: 500,
-                ATTR_BODY: {'message': "Unable to proxy request"}
-                })
+            return self._result_dict(Response(body="Unable to proxy request", status=500))
         else:
-            return self._result_dict(await _convert_response(result))
+            return self._result_dict(_convert_response(result))
 
     def _result_dict(self, response):
         return {
