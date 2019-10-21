@@ -610,6 +610,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                   access_token,
                   password,
                   route):
+        _LOGGER.warning("Adding proxy for %s to %s %s" % (route, host, port))
         self.proxies.add(ProxyData(
             session,
             method,
