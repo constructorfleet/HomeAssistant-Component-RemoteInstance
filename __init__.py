@@ -479,10 +479,10 @@ class ProxyData(object):
         self.auth_required = access_token or password
         self.route = route
 
-    def get_url(self, requested_route):
+    def get_url(self, path):
         """Get route to connect to."""
         return '%s://%s:%s%s' % (
-            'https' if self.secure else 'http', self.host, self.port, requested_route)
+            'https' if self.secure else 'http', self.host, self.port, path)
 
     def get_auth_header(self):
         """Get the authentication header."""
@@ -493,8 +493,8 @@ class ProxyData(object):
 
     async def perform_proxy(self, request):
         headers = {}
-        proxy_url = self.get_url(request.rel_url)
-        _LOGGER.warning("Proxying %s %s to %s" % (self.method, request.url, proxy_url))
+        proxy_url = self.get_url(request.path)
+        _LOGGER.warning("Proxying %s %s to %s%s" % (self.method, request.url, proxy_url, '?%s' % request.query_string))
 
         if self.auth_required:
             auth_header_key, auth_header_value = self.get_auth_header()
