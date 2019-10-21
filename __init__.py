@@ -459,9 +459,9 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
         hass.http.register_view(proxy_route)
 
 
-def _convert_response(client_response):
+async def _convert_response(client_response):
     return Response(
-        body=client_response.content,
+        body= await client_response.read(),
         status=client_response.status,
         headers=client_response.headers)
 
@@ -534,7 +534,7 @@ class ProxyData(object):
         if result is None:
             return self._result_dict(Response(body="Unable to proxy request", status=500))
         else:
-            return self._result_dict(_convert_response(result))
+            return self._result_dict(await _convert_response(result))
 
     def _result_dict(self, response):
         return {
