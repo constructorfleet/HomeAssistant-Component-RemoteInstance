@@ -511,47 +511,25 @@ class ProxyData(object):
                     data = await request.json()
                 except ValueError:
                     return self._result_dict(Response(body="Unable to parse JSON", status=400))
-                if asyncio.iscoroutine(request_method):
-                    result = await request_method(
-                        proxy_url,
-                        json=data,
-                        params=request.query,
-                        headers=headers
-                    )
-                else:
-                    result = request_method(
-                        proxy_url,
-                        json=data,
-                        params=request.query,
-                        headers=headers
-                    )
-            else:
-                if asyncio.iscoroutine(request_method):
-                    result = await request_method(
-                        proxy_url,
-                        data=await request.read(),
-                        params=request.query,
-                        headers=headers
-                    )
-                else:
-                    result = request_method(
-                        proxy_url,
-                        data=await request.read(),
-                        params=request.query,
-                        headers=headers
-                    )
-        else:
-            if asyncio.iscoroutine(request_method):
                 result = await request_method(
                     proxy_url,
+                    json=data,
                     params=request.query,
                     headers=headers
                 )
             else:
-                result = request_method(
+                result = await request_method(
                     proxy_url,
+                    data=await request.read(),
                     params=request.query,
                     headers=headers
+                )
+        else:
+            result = await request_method(
+                proxy_url,
+                params=request.query,
+                headers=headers
+            )
 
         if result is None:
             return self._result_dict(Response(body="Unable to proxy request", status=500))
