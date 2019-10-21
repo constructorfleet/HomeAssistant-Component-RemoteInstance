@@ -15,8 +15,7 @@ import aiohttp
 import homeassistant.components.websocket_api.auth as api
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from aiohttp import ClientError, ClientTimeout
-from aiohttp.abc import StreamResponse
+from aiohttp import ClientError, ClientTimeout, web
 from aiohttp.web import Response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
@@ -645,7 +644,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                 proxy = result[ATTR_PROXY]
                 if len(exact_match_proxies) == 0:
                     self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
-                if isinstance(result[ATTR_RESPONSE], StreamResponse):
+                if isinstance(result[ATTR_RESPONSE], web.StreamResponse):
                     return result[ATTR_RESPONSE]
                 return self.json(result[ATTR_RESPONSE])
                 # else:
