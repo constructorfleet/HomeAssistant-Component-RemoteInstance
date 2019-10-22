@@ -258,7 +258,10 @@ class RemoteInstance(object):
             else:
                 handler = self._handlers.get(message['id'])
                 if handler is not None:
-                    handler(message)
+                    if asyncio.iscoroutine(handler):
+                        await handler
+                    else:
+                        handler(message)
 
         await self._disconnected()
 
@@ -395,7 +398,7 @@ class RemoteInstance(object):
 
                 state_changed(entity_id, state, attributes)
 
-        def got_services(message):
+        async def got_services(message):
             for domain in message['result']:
                 if domain not in self._hass.data.get(DATA_INSTANCES, {})[domain]:
                     await EntityComponent(
