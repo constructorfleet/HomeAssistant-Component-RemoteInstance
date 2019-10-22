@@ -402,6 +402,18 @@ class RemoteInstance(object):
                         event_data={ATTR_DOMAIN: domain, ATTR_SERVICE: service},
                         origin=EventOrigin.remote
                     )
+                    if self._proxy_api:
+                        register_proxy(
+                            self._hass,
+                            self._session,
+                            self._host,
+                            self._port,
+                            self._secure,
+                            self._token,
+                            self._password,
+                            '/api/services/%s/%s' % (domain, service),
+                            'post'
+                        )
 
         self._remove_listener = self._hass.bus.async_listen(EVENT_CALL_SERVICE, forward_event)
 
@@ -545,7 +557,6 @@ class ProxyData(object):
                 headers=client_response.headers),
             ATTR_STATUS: client_response.status
         }
-
 
     def copy_with_route(self, route):
         return ProxyData(
