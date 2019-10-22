@@ -25,6 +25,7 @@ from homeassistant.const import (EVENT_HOMEASSISTANT_STOP, EVENT_SERVICE_REGISTE
 from homeassistant.core import EventOrigin, split_entity_id
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.entity_component import DATA_INSTANCES, EntityComponent
 from homeassistant.helpers.typing import HomeAssistantType, ConfigType
 
 _LOGGER = logging.getLogger(__name__)
@@ -396,6 +397,12 @@ class RemoteInstance(object):
 
         def got_services(message):
             for domain in message['result']:
+                if domain not in self._hass.data.get(DATA_INSTANCES, {})[domain]:
+                    await EntityComponent(
+                        logging.getLogger(EntityComponent.__name__),
+                        domain,
+                        self._hass
+                    ).async_setup({domain: {}})
                 for service in domain:
                     self._hass.bus.async_fire(
                         event_type=EVENT_SERVICE_REGISTERED,
