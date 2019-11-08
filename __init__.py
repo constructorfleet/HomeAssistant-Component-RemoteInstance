@@ -545,6 +545,7 @@ class ProxyData(object):
         return Response(body="Unable to proxy request", status=500)
 
     async def _convert_response(self, client_response):
+        _LOGGER.warning("%s %s" % (str(self), client_response.status))
         if 'json' in client_response.headers.get(hdrs.CONTENT_TYPE, '').lower():
             response_body = await client_response.read()
             try:
