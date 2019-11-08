@@ -538,9 +538,7 @@ class ProxyData(object):
                 headers=headers
             )
 
-        if result is None:
-            return Response(body="Unable to proxy request", status=500)
-        else:
+        if result is not None:
             return await self._convert_response(result)
 
     async def _convert_response(self, client_response):
