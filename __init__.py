@@ -482,6 +482,9 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
         )
 
         hass.data[DOMAIN][method][route] = proxy_route
+        for resource in [resource for resource in hass.http.app.router._resources if resource.canonical == route]:
+            hass.http.app.router._resources.remove(resource)
+
         hass.http.register_view(proxy_route)
 
 
