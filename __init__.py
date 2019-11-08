@@ -529,7 +529,7 @@ class ProxyData(object):
         if self.method in HTTP_METHODS_WITH_PAYLOAD:
             result = await request_method(
                 proxy_url,
-                json=request.json(),
+                json=await request.json(),
                 params=request.query,
                 headers=headers
             )
