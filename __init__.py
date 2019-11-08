@@ -582,6 +582,7 @@ class ProxyData(object):
         )
 
     def is_exact_match(self, method, route):
+        _LOGGER.warning("Checking exact match PROXY %s %s REQUEST %s %s" % (self.method, self.route, method, route))
         return self.method == method and self.route == route
 
     def __eq__(self, other):
