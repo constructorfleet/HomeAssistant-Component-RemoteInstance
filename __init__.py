@@ -77,6 +77,8 @@ HTTP_METHODS_WITH_PAYLOAD = [
     'patch'
 ]
 
+ROUTE_PREFIX_SERVICE_CALL = '/api/services/'
+
 INSTANCES_SCHEMA = vol.Schema({
     vol.Required(CONF_HOST): cv.string,
     vol.Optional(CONF_PORT, default=8123): cv.port,
@@ -479,7 +481,7 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
         )
 
         hass.data[DOMAIN][method][route] = proxy_route
-        if "/api/services/{domain}/{service}" != proxy_route:
+        if not proxy_route.startswith(ROUTE_PREFIX_SERVICE_CALL):
             for resource in [resource for resource in hass.http.app.router._resources if resource.canonical == route]:
                 hass.http.app.router._resources.remove(resource)
         hass.http.register_view(proxy_route)
@@ -668,11 +670,10 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
         for result in results:
             if result[ATTR_STATUS] == 200:
-                proxy = result[ATTR_PROXY]
-                exact_proxy = proxy.copy_with_route(route)
-                _LOGGER.warning("Exact match proxy %s" % repr(exact_proxy))
-                self.proxies.add(exact_proxy)
-                _LOGGER.warning('Current proxies for %s: %s' % (route, str(self.proxies)))
+                if not route.startswith(ROUTE_PREFIX_SERVICE_CALL):
+                    proxy = result[ATTR_PROXY]
+                    exact_proxy = proxy.copy_with_route(route)
+                    self.proxies.add(exact_proxy)
                 if isinstance(result[ATTR_RESPONSE], web.StreamResponse):
                     return result[ATTR_RESPONSE]
                 return self.json(result[ATTR_RESPONSE])
