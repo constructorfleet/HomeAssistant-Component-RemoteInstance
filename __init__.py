@@ -654,7 +654,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         _LOGGER.warning('Current proxies for %s: %s' % (route, str(self.proxies)))
 
     async def perform_proxy(self, request, **kwargs):
-        route = str(request.rel_url).split('?')[0]
+        route = request.url.path
         exact_match_proxies = [proxy for proxy in self.proxies if
                                proxy.is_exact_match(self._method, route)]
         if len(exact_match_proxies) != 0:
@@ -664,12 +664,12 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             _LOGGER.warning("Using %s proxies for %s" % (str(self.proxies), route))
             results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in self.proxies])
 
-        server_error_result = None
         for result in results:
             if result[ATTR_STATUS] == 200:
                 proxy = result[ATTR_PROXY]
-                if len(exact_match_proxies) == 0:
-                    self.proxies.add(proxy.copy_with_route(str(request.rel_url).split('?')[0]))
+                exact_proxy = proxy.copy_with_route(request.url.path)
+                _LOGGER.warning("Adding exact match proxy %s" % str(exact_proxy))
+                self.proxies.add(exact_proxy)
                 if isinstance(result[ATTR_RESPONSE], web.StreamResponse):
                     return result[ATTR_RESPONSE]
                 return self.json(result[ATTR_RESPONSE])
