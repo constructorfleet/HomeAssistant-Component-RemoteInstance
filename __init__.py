@@ -545,7 +545,7 @@ class ProxyData(object):
                 return await self._convert_response(result)
         except Exception as e:
             _LOGGER.error("Error proxying %s %s to %s: %s" % (self.method, request.url, proxy_url, str(e)))
-            return self
+        return self
 
     async def _convert_response(self, client_response):
         if 'json' in client_response.headers.get(hdrs.CONTENT_TYPE, '').lower():
