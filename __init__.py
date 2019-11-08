@@ -526,22 +526,26 @@ class ProxyData(object):
             _LOGGER.warning("Couldn't find method %s" % self.method)
             return Response(body="Proxy route not found", status=404)
 
-        if self.method in HTTP_METHODS_WITH_PAYLOAD:
-            result = await request_method(
-                proxy_url,
-                json=await request.json(),
-                params=request.query,
-                headers=headers
-            )
-        else:
-            result = await request_method(
-                proxy_url,
-                params=request.query,
-                headers=headers
-            )
+        try:
+            if self.method in HTTP_METHODS_WITH_PAYLOAD:
+                result = await request_method(
+                    proxy_url,
+                    json=await request.json(),
+                    params=request.query,
+                    headers=headers
+                )
+            else:
+                result = await request_method(
+                    proxy_url,
+                    params=request.query,
+                    headers=headers
+                )
 
-        if result is not None:
-            return await self._convert_response(result)
+            if result is not None:
+                return await self._convert_response(result)
+        except Exception as e:
+            _LOGGER.error("Error proxying %s %s to %s: %s" % (self.method, request.url, proxy_url, str(e)))
+            return self
 
     async def _convert_response(self, client_response):
         if 'json' in client_response.headers.get(hdrs.CONTENT_TYPE, '').lower():
@@ -668,6 +672,9 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
         server_error_result = None
         for result in results:
+            if isinstance(result, ProxyData):
+                self.proxies.discard(result)
+                continue
             if result[ATTR_STATUS] == 200:
                 proxy = result[ATTR_PROXY]
                 if len(exact_match_proxies) == 0:
