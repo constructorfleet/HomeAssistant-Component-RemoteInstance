@@ -581,8 +581,8 @@ class ProxyData(object):
             route
         )
 
-    def is_exact_match(self, method, host, port, route):
-        return self.method == method and self.host == host and self.port == port and self.route == route
+    def is_exact_match(self, method, route):
+        return self.method == method and self.route == route
 
     def __eq__(self, other):
         if isinstance(other, ProxyData):
@@ -656,7 +656,7 @@ class AbstractRemoteApiProxy(HomeAssistantView):
     async def perform_proxy(self, request, **kwargs):
         route = str(request.rel_url).split('?')[0]
         exact_match_proxies = [proxy for proxy in self.proxies if
-                               proxy.is_exact_match(self._method, self._host, self._port, route)]
+                               proxy.is_exact_match(self._method, route)]
         if len(exact_match_proxies) != 0:
             _LOGGER.warning("Found %s proxies for %s" % (str(exact_match_proxies), route))
             results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in exact_match_proxies])
