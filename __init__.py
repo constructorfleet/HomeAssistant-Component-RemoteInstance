@@ -515,7 +515,6 @@ class ProxyData(object):
     async def perform_proxy(self, request):
         headers = {}
         proxy_url = self.get_url(request.path)
-        _LOGGER.warning("Proxying %s %s to %s" % (self.method, request.url, proxy_url))
 
         if self.auth_required:
             auth_header_key, auth_header_value = self.get_auth_header()
@@ -585,7 +584,6 @@ class ProxyData(object):
         )
 
     def is_exact_match(self, method, route):
-        _LOGGER.warning("Checking exact match PROXY %s %s REQUEST %s %s" % (self.method, self.route, method, route))
         return self.method == method and self.route == route
 
     def __eq__(self, other):
@@ -655,7 +653,6 @@ class AbstractRemoteApiProxy(HomeAssistantView):
             password,
             route
         ))
-        _LOGGER.warning('Current proxies for %s: %s' % (route, str(self.proxies)))
 
     async def perform_proxy(self, request, **kwargs):
         route = request.url.path
