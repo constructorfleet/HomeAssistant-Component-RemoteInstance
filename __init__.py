@@ -545,7 +545,6 @@ class ProxyData(object):
         return Response(body="Unable to proxy request", status=500)
 
     async def _convert_response(self, client_response):
-        _LOGGER.warning("%s %s" % (str(self), client_response.status))
         if 'json' in client_response.headers.get(hdrs.CONTENT_TYPE, '').lower():
             response_body = await client_response.read()
             try:
@@ -594,10 +593,10 @@ class ProxyData(object):
         return False
 
     def __hash__(self):
-        return hash('%s%s%s' % (self.host, self.port, self.method))
+        return hash(self.__repr__())
 
     def __str__(self) -> str:
-        return "%s %s%s%s" % (self.method, self.host, self.port, self.route)
+        return self.__repr__()
 
     def __repr__(self) -> str:
         return "%s %s%s%s" % (self.method, self.host, self.port, self.route)
@@ -669,8 +668,8 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         for result in results:
             if result[ATTR_STATUS] == 200:
                 proxy = result[ATTR_PROXY]
-                _LOGGER.warning("Result %s" % repr(result))
-                exact_proxy = proxy.copy_with_route(request.url.path)
+                exact_proxy = proxy.copy_with_route(route)
+                _LOGGER.warning("Exact match proxy %s" % repr(exact_proxy))
                 self.proxies.add(exact_proxy)
                 _LOGGER.warning('Current proxies for %s: %s' % (route, str(self.proxies)))
                 if isinstance(result[ATTR_RESPONSE], web.StreamResponse):
