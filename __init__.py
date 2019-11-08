@@ -672,7 +672,9 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
         server_error_result = None
         for result in results:
+            _LOGGER.warning("Result %s" % (type(result)))
             if isinstance(result, ProxyData):
+                _LOGGER.warning("Removing %s for %s route" % (str(result), route))
                 self.proxies.discard(result)
                 continue
             if result[ATTR_STATUS] == 200:
@@ -682,8 +684,8 @@ class AbstractRemoteApiProxy(HomeAssistantView):
                 if isinstance(result[ATTR_RESPONSE], web.StreamResponse):
                     return result[ATTR_RESPONSE]
                 return self.json(result[ATTR_RESPONSE])
-                # else:
-                #     self.proxies.discard(proxy)
+            else:
+                _LOGGER.warning("Got %s %s for %s route" % (str(result[ATTR_STATUS]), str(result), route))
 
         return self.json_message("Unable to proxy request", 500)
 
