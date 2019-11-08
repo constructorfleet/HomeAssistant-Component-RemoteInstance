@@ -668,9 +668,10 @@ class AbstractRemoteApiProxy(HomeAssistantView):
         for result in results:
             if result[ATTR_STATUS] == 200:
                 proxy = result[ATTR_PROXY]
+                _LOGGER.warning("Result %s" % repr(result))
                 exact_proxy = proxy.copy_with_route(request.url.path)
-                _LOGGER.warning("Adding exact match proxy %s" % str(exact_proxy))
                 self.proxies.add(exact_proxy)
+                _LOGGER.warning('Current proxies for %s: %s' % (route, str(self.proxies)))
                 if isinstance(result[ATTR_RESPONSE], web.StreamResponse):
                     return result[ATTR_RESPONSE]
                 return self.json(result[ATTR_RESPONSE])
