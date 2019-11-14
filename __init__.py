@@ -20,8 +20,9 @@ from aiohttp.web import Response
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (CONF_HOST, CONF_PORT)
-from homeassistant.const import (EVENT_HOMEASSISTANT_STOP, EVENT_SERVICE_REGISTERED, ATTR_DOMAIN, ATTR_SERVICE,
-                                 EVENT_CALL_SERVICE, ATTR_ENTITY_PICTURE, EVENT_STATE_CHANGED)
+from homeassistant.const import (
+    EVENT_HOMEASSISTANT_STOP, EVENT_SERVICE_REGISTERED, ATTR_DOMAIN, ATTR_SERVICE,
+    EVENT_CALL_SERVICE, ATTR_ENTITY_PICTURE, EVENT_STATE_CHANGED)
 from homeassistant.core import EventOrigin, split_entity_id
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
