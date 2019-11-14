@@ -2,7 +2,7 @@
 Connect two Home Assistant instances via the Websocket API.
 
 For more details about this component, please refer to the documentation at
-https://home-assistant.io/components/remote_homeassistant/
+https://github.com/constructorfleet/HomeAssistant-Component-RemoteInstance
 """
 
 import asyncio
