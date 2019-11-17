@@ -212,7 +212,7 @@ class RemoteInstance:
         asyncio.ensure_future(self.async_connect())
 
     async def _recv(self):
-        def _get_message():
+        async def _get_message():
             message = None
             try:
                 data = await self._connection.receive()
@@ -237,7 +237,7 @@ class RemoteInstance:
             return message
 
         while not self._connection.closed:
-            message = _get_message()
+            message = await _get_message()
 
             if message and message['type'] == api.TYPE_AUTH_OK:
                 await self._init()
