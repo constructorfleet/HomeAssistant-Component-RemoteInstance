@@ -500,7 +500,7 @@ class ProxyData:
     """Container for proxy data."""
 
     def __init__(self, session, method, host, port, secure, access_token, password, route):
-        self._session = session
+        self.session = session
         self.method = method
         self.host = host
         self.port = port
@@ -531,7 +531,7 @@ class ProxyData:
             auth_header_key, auth_header_value = self.get_auth_header()
             headers[auth_header_key] = auth_header_value
 
-        request_method = getattr(self._session, self.method, None)
+        request_method = getattr(self.session, self.method, None)
         if not request_method:
             _LOGGER.warning("Couldn't find method %s",
                             self.method)
@@ -592,7 +592,7 @@ class ProxyData:
     def copy_with_route(self, route):
         """Creates a new ProxyData with the specified route."""
         return ProxyData(
-            self._session,
+            self.session,
             self.method,
             self.host,
             self.port,
