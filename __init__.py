@@ -120,7 +120,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
-class RemoteInstance(object):
+class RemoteInstance:
     """A Websocket connection to a remote home-assistant instance."""
 
     def __init__(self, hass, conf):
@@ -152,7 +152,11 @@ class RemoteInstance(object):
     def _get_url(self, scheme, route):
         """Get url to connect to."""
         return '%s://%s:%s%s' % (
-            '%ss' % scheme if self._secure else scheme, self._host, self._port, route if route else "")
+            '%ss' % scheme if self._secure else scheme,
+            self._host,
+            self._port,
+            route if route else ""
+        )
 
     async def async_connect(self):
         """Connect to remote home-assistant websocket..."""
@@ -166,7 +170,7 @@ class RemoteInstance(object):
                 self._connection = await session.ws_connect(url)
             except ClientError as err:
                 _LOGGER.error(
-                    'Could not connect to %s, retry in 10 seconds...', url)
+                    'Could not connect to %s, retry in 10 seconds... %s', url, str(err))
                 await asyncio.sleep(10)
             else:
                 _LOGGER.info(
@@ -187,9 +191,9 @@ class RemoteInstance(object):
         self.__id += 1
         return _id
 
-    async def _call(self, callback, message_type, **extra_args):
+    async def _call(self, handler, message_type, **extra_args):
         _id = self._next_id()
-        self._handlers[_id] = callback
+        self._handlers[_id] = handler
         try:
             await self._connection.send_json(
                 {'id': _id, 'type': message_type, **extra_args})
@@ -208,37 +212,37 @@ class RemoteInstance(object):
         asyncio.ensure_future(self.async_connect())
 
     async def _recv(self):
-        while not self._connection.closed:
+        def _get_message():
+            message = None
             try:
                 data = await self._connection.receive()
             except ClientError as err:
                 _LOGGER.error('remote websocket connection closed: %s', err)
-                break
+                return None
 
-            if not data:
-                break
-
-            if data.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
+            if not data or data.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
                 _LOGGER.error('websocket connection is closing')
-                break
+                return None
 
-            if data.type == aiohttp.WSMsgType.ERROR:
+            if not data or data.type == aiohttp.WSMsgType.ERROR:
                 _LOGGER.error('websocket connection had an error')
-                break
+                return None
 
             try:
-                message = data.json()
+                if data:
+                    message = data.json()
             except TypeError as err:
                 _LOGGER.error('could not decode data (%s) as json: %s', data, err)
-                break
 
-            if message is None:
-                break
+            return message
 
-            if message['type'] == api.TYPE_AUTH_OK:
+        while not self._connection.closed:
+            message = _get_message()
+
+            if message and message['type'] == api.TYPE_AUTH_OK:
                 await self._init()
 
-            elif message['type'] == api.TYPE_AUTH_REQUIRED:
+            elif message and message['type'] == api.TYPE_AUTH_REQUIRED:
                 if not (self._token or self._password):
                     _LOGGER.error('Access token or api password required, but not provided')
                     return
@@ -252,12 +256,12 @@ class RemoteInstance(object):
                     _LOGGER.error('could not send data to remote connection: %s', err)
                     break
 
-            elif message['type'] == api.TYPE_AUTH_INVALID:
+            elif message and message['type'] == api.TYPE_AUTH_INVALID:
                 _LOGGER.error('Auth invalid, check your access token or API password')
                 await self._connection.close()
                 return
 
-            else:
+            elif message:
                 handler = self._handlers.get(message['id'])
                 if handler is not None:
                     if asyncio.iscoroutine(handler):
@@ -268,193 +272,202 @@ class RemoteInstance(object):
         await self._disconnected()
 
     async def _init(self):
-        async def forward_event(event):
-            """Send local event to remote instance.
+        self._remove_listener = self._hass.bus.async_listen(EVENT_CALL_SERVICE, self.forward_event)
 
-            The affected entity_id has to origin from that remote instance,
-            otherwise the event is dicarded.
-            """
-            event_data = event.data
-            service_data = event_data['service_data']
+        for event_type in self._subscribe_to:
+            await self._call(self.fire_event, 'subscribe_events', event_type=event_type)
 
-            if not service_data:
-                return
+        if EVENT_SERVICE_REGISTERED in self._subscribe_to:
+            await self._call(self.got_services, 'get_services')
 
-            entity_ids = service_data.get('entity_id', None)
+        if EVENT_ROUTE_REGISTERED in self._subscribe_to:
+            await self._call(self.fire_event, EVENT_TYPE_REQUEST_ROUTES)
 
-            if not entity_ids:
-                return
+        await self._call(self.got_states, 'get_states')
 
-            if isinstance(entity_ids, str):
-                entity_ids = (entity_ids.lower(),)
+    async def forward_event(self, event):
+        """Send local event to remote instance.
 
-            entity_ids = self._entities.intersection(entity_ids)
+        The affected entity_id has to origin from that remote instance,
+        otherwise the event is dicarded.
+        """
+        event_data = event.data
+        service_data = event_data['service_data']
 
-            if not entity_ids:
-                return
+        if not service_data:
+            return
 
-            if self._entity_prefix:
-                def _remove_prefix(entity_id):
-                    domain, object_id = split_entity_id(entity_id)
-                    object_id = object_id.replace(self._entity_prefix, '', 1)
-                    return domain + '.' + object_id
+        entity_ids = service_data.get('entity_id', None)
 
-                entity_ids = {_remove_prefix(entity_id)
-                              for entity_id in entity_ids}
+        if not entity_ids:
+            return
 
-            event_data = copy.deepcopy(event_data)
-            event_data['service_data']['entity_id'] = list(entity_ids)
+        if isinstance(entity_ids, str):
+            entity_ids = (entity_ids.lower(),)
 
-            # Remove service_call_id parameter - websocket API
-            # doesn't accept that one
-            event_data.pop('service_call_id', None)
+        entity_ids = self._entities.intersection(entity_ids)
 
-            _id = self._next_id()
-            data = {
-                'id': _id,
-                'type': event.event_type,
-                **event_data
-            }
+        if not entity_ids:
+            return
 
-            try:
-                await self._connection.send_json(data)
-            except Exception as err:
-                _LOGGER.error('could not send data to remote connection: %s', err)
-                await self._disconnected()
+        if self._entity_prefix:
+            def _remove_prefix(entity_id):
+                domain, object_id = split_entity_id(entity_id)
+                object_id = object_id.replace(self._entity_prefix, '', 1)
+                return domain + '.' + object_id
 
-        def state_changed(entity_id, state, attr):
-            """Publish remote state change on local instance."""
-            domain, object_id = split_entity_id(entity_id)
-            if self._entity_prefix:
-                object_id = self._entity_prefix + object_id
-                entity_id = domain + '.' + object_id
+            entity_ids = {_remove_prefix(entity_id)
+                          for entity_id in entity_ids}
 
-            route = attr.get(ATTR_ENTITY_PICTURE, '').split('?')[0].replace(entity_id, '{entity_id}')
-            if ATTR_ENTITY_PICTURE in attr and self._proxy_api and any(
-                    [proxy_component for proxy_component in self._proxy_components if proxy_component in route]):
-                method = 'get'
-                register_proxy(
-                    self._hass,
+        event_data = copy.deepcopy(event_data)
+        event_data['service_data']['entity_id'] = list(entity_ids)
+
+        # Remove service_call_id parameter - websocket API
+        # doesn't accept that one
+        event_data.pop('service_call_id', None)
+
+        _id = self._next_id()
+        data = {
+            'id': _id,
+            'type': event.event_type,
+            **event_data
+        }
+
+        try:
+            await self._connection.send_json(data)
+        except Exception as err:
+            _LOGGER.error('could not send data to remote connection: %s', err)
+            await self._disconnected()
+
+    def state_changed(self, entity_id, state, attr):
+        """Publish remote state change on local instance."""
+        domain, object_id = split_entity_id(entity_id)
+        if self._entity_prefix:
+            object_id = self._entity_prefix + object_id
+            entity_id = domain + '.' + object_id
+
+        route = attr.get(
+            ATTR_ENTITY_PICTURE,
+            ''
+        ).split('?')[0].replace(
+            entity_id,
+            '{entity_id}'
+        )
+        if ATTR_ENTITY_PICTURE in attr \
+                and self._proxy_api \
+                and any([proxy_component for proxy_component in self._proxy_components if
+                         proxy_component in route]):
+            method = 'get'
+            register_proxy(
+                self._hass,
+                ProxyData(
                     self._session,
+                    method,
                     self._host,
                     self._port,
                     self._secure,
                     self._token,
                     self._password,
-                    route,
-                    method)
+                    route)
+            )
 
-            # Add local customization data
-            if DATA_CUSTOMIZE in self._hass.data:
-                attr.update(self._hass.data[DATA_CUSTOMIZE].get(entity_id))
+        # Add local customization data
+        if DATA_CUSTOMIZE in self._hass.data:
+            attr.update(self._hass.data[DATA_CUSTOMIZE].get(entity_id))
 
-            self._entities.add(entity_id)
-            self._hass.states.async_set(entity_id, state, attr)
+        self._entities.add(entity_id)
+        self._hass.states.async_set(entity_id, state, attr)
 
-        def fire_event(message):
-            """Publish remove event on local instance."""
-            if message['type'] == 'result':
-                return
+    def fire_event(self, message):
+        """Publish remove event on local instance."""
+        if message['type'] == 'result':
+            return
 
-            if message['type'] != 'event':
-                return
+        if message['type'] != 'event':
+            return
 
-            if message['event']['event_type'] == EVENT_STATE_CHANGED:
-                entity_id = message['event']['data']['entity_id']
-                state = message['event']['data']['new_state']['state']
-                attr = message['event']['data']['new_state']['attributes']
-                state_changed(entity_id, state, attr)
-            elif message['event']['event_type'] == EVENT_ROUTE_REGISTERED and self._proxy_api:
-                data = message['event']['data']
-                route = str(data[ATTR_ROUTE]).split('?')[0]
-                if any(
-                        [proxy_component for proxy_component in self._proxy_components if proxy_component in route]
-                ):
-                    method = data[ATTR_METHOD]
-                    register_proxy(
-                        self._hass,
+        if message['event']['event_type'] == EVENT_STATE_CHANGED:
+            entity_id = message['event']['data']['entity_id']
+            state = message['event']['data']['new_state']['state']
+            attr = message['event']['data']['new_state']['attributes']
+            self.state_changed(entity_id, state, attr)
+        elif message['event']['event_type'] == EVENT_ROUTE_REGISTERED and self._proxy_api:
+            data = message['event']['data']
+            route = str(data[ATTR_ROUTE]).split('?')[0]
+            if any(
+                    [proxy_component for proxy_component in self._proxy_components if
+                     proxy_component in route]
+            ):
+                method = data[ATTR_METHOD]
+                register_proxy(
+                    self._hass,
+                    ProxyData(
                         self._session,
+                        method,
                         self._host,
                         self._port,
                         self._secure,
                         self._token,
                         self._password,
-                        route,
-                        method)
-            else:
-                event = message['event']
+                        route
+                    )
+                )
+        else:
+            event = message['event']
+            self._hass.bus.async_fire(
+                event_type=event['event_type'],
+                event_data=event['data'],
+                origin=EventOrigin.remote
+            )
+
+    def got_states(self, message):
+        """Called when list of remote states is available."""
+        for entity in message['result']:
+            entity_id = entity['entity_id']
+            state = entity['state']
+            attributes = entity['attributes']
+
+            self.state_changed(entity_id, state, attributes)
+
+    async def got_services(self, message):
+        """Handle services message."""
+        for domain in message['result']:
+            if domain not in self._hass.data.get(DATA_INSTANCES, {})[domain]:
+                await EntityComponent(
+                    logging.getLogger(EntityComponent.__name__),
+                    domain,
+                    self._hass
+                ).async_setup({domain: {}})
+            for service in domain:
                 self._hass.bus.async_fire(
-                    event_type=event['event_type'],
-                    event_data=event['data'],
+                    event_type=EVENT_SERVICE_REGISTERED,
+                    event_data={ATTR_DOMAIN: domain, ATTR_SERVICE: service},
                     origin=EventOrigin.remote
                 )
-
-        def got_states(message):
-            """Called when list of remote states is available."""
-            for entity in message['result']:
-                entity_id = entity['entity_id']
-                state = entity['state']
-                attributes = entity['attributes']
-
-                state_changed(entity_id, state, attributes)
-
-        async def got_services(message):
-            for domain in message['result']:
-                if domain not in self._hass.data.get(DATA_INSTANCES, {})[domain]:
-                    await EntityComponent(
-                        logging.getLogger(EntityComponent.__name__),
-                        domain,
-                        self._hass
-                    ).async_setup({domain: {}})
-                for service in domain:
-                    self._hass.bus.async_fire(
-                        event_type=EVENT_SERVICE_REGISTERED,
-                        event_data={ATTR_DOMAIN: domain, ATTR_SERVICE: service},
-                        origin=EventOrigin.remote
-                    )
-                    if self._proxy_api:
-                        register_proxy(
-                            self._hass,
+                if self._proxy_api:
+                    register_proxy(
+                        self._hass,
+                        ProxyData(
                             self._session,
+                            'post',
                             self._host,
                             self._port,
                             self._secure,
                             self._token,
                             self._password,
-                            '/api/services/%s/%s' % (domain, service),
-                            'post'
+                            '/api/services/%s/%s' % (domain, service)
                         )
-
-        self._remove_listener = self._hass.bus.async_listen(EVENT_CALL_SERVICE, forward_event)
-
-        for event_type in self._subscribe_to:
-            await self._call(fire_event, 'subscribe_events', event_type=event_type)
-
-        if EVENT_SERVICE_REGISTERED in self._subscribe_to:
-            await self._call(got_services, 'get_services')
-
-        if EVENT_ROUTE_REGISTERED in self._subscribe_to:
-            await self._call(fire_event, EVENT_TYPE_REQUEST_ROUTES)
-
-        await self._call(got_states, 'get_states')
+                    )
 
 
-def register_proxy(hass, session, host, port, secure, access_token, password, route, method):
-    if str(route).startswith("http") or '/local' in route:
+def register_proxy(hass, proxy):
+    """Registers a proxy with the http router."""
+    if str(proxy.route).startswith("http") or '/local' in proxy.route:
         return
 
-    proxy_route = hass.data[DOMAIN].get(method, {}).get(route, None)
+    proxy_route = hass.data[DOMAIN].get(proxy.method, {}).get(proxy.route, None)
     if proxy_route:
-        proxy_route.add_proxy(
-            session,
-            method,
-            host,
-            port,
-            secure,
-            access_token,
-            password,
-            route
-        )
+        proxy_route.add_proxy(proxy)
     else:
         proxy_class = {
             'get': GetRemoteApiProxy,
@@ -464,31 +477,27 @@ def register_proxy(hass, session, host, port, secure, access_token, password, ro
             "patch": PatchRemoteApiProxy,
             "head": HeadRemoteApiProxy,
             "options": OptionsRemoteApiProxy
-        }.get(method, None)
+        }.get(proxy.method, None)
 
         if not proxy_class:
             return
 
         proxy_route = proxy_class(
             hass,
-            session,
-            host,
-            port,
-            secure,
-            access_token,
-            password,
-            route,
-            method
+            proxy
         )
 
-        hass.data[DOMAIN][method][route] = proxy_route
-        if not route.startswith(ROUTE_PREFIX_SERVICE_CALL):
-            for resource in [resource for resource in hass.http.app.router._resources if resource.canonical == route]:
+        hass.data[DOMAIN][proxy.method][proxy.route] = proxy_route
+        if not proxy.route.startswith(ROUTE_PREFIX_SERVICE_CALL):
+            for resource in [resource for resource in hass.http.app.router._resources if
+                             resource.canonical == proxy.route]:
                 hass.http.app.router._resources.remove(resource)
         hass.http.register_view(proxy_route)
 
 
-class ProxyData(object):
+# pylint: disable=too-many-arguments
+class ProxyData:
+    """Container for proxy data."""
 
     def __init__(self, session, method, host, port, secure, access_token, password, route):
         self._session = session
@@ -510,10 +519,11 @@ class ProxyData(object):
         """Get the authentication header."""
         if self.access_token:
             return HEADER_KEY_AUTHORIZATION, 'Bearer %s' % self.access_token
-        else:
-            return HEADER_KEY_PASSWORD, self.password
+
+        return HEADER_KEY_PASSWORD, self.password
 
     async def perform_proxy(self, request):
+        """Forward request to the remote instance."""
         headers = {}
         proxy_url = self.get_url(request.path)
 
@@ -523,7 +533,8 @@ class ProxyData(object):
 
         request_method = getattr(self._session, self.method, None)
         if not request_method:
-            _LOGGER.warning("Couldn't find method %s" % self.method)
+            _LOGGER.warning("Couldn't find method %s",
+                            self.method)
             return Response(body="Proxy route not found", status=404)
 
         try:
@@ -544,7 +555,13 @@ class ProxyData(object):
             if result is not None:
                 return await self._convert_response(result)
         except Exception as e:
-            _LOGGER.error("Error proxying %s %s to %s: %s" % (self.method, request.url, proxy_url, str(e)))
+            _LOGGER.error(
+                "Error proxying %s %s to %s: %s",
+                self.method,
+                request.url,
+                proxy_url,
+                str(e)
+            )
         return Response(body="Unable to proxy request", status=500)
 
     async def _convert_response(self, client_response):
@@ -557,7 +574,7 @@ class ProxyData(object):
                     ATTR_RESPONSE: data,
                     ATTR_STATUS: client_response.status
                 }
-            except JSONDecodeError as exc:
+            except JSONDecodeError:
                 return {
                     ATTR_PROXY: self,
                     ATTR_RESPONSE: "Unable to parse JSON",
@@ -573,6 +590,7 @@ class ProxyData(object):
         }
 
     def copy_with_route(self, route):
+        """Creates a new ProxyData with the specified route."""
         return ProxyData(
             self._session,
             self.method,
@@ -585,6 +603,7 @@ class ProxyData(object):
         )
 
     def is_exact_match(self, method, route):
+        """Checks if the method and route are an exact match."""
         return self.method == method and self.route == route
 
     def __eq__(self, other):
@@ -609,62 +628,45 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
     cors_allowed = True
 
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
+    def __init__(self, hass, proxy):
         """Initializing the proxy."""
-        if method not in HTTP_METHODS:
+        if proxy.method not in HTTP_METHODS:
             return
 
         self.proxies = set()
         self.requires_auth = False
-        self.url = route if str(route).startswith('/') else '/%s' % route
+        self.url = proxy.route if str(proxy.route).startswith('/') else '/%s' % proxy.route
         self.name = self.url.replace('/', ':')[1:]
         self._hass = hass
-        self._method = method
-        self._host = host
-        self._port = port
+        self._method = proxy.method
+        self._host = proxy.host
+        self._port = proxy.port
 
-        self._session = session
-        self.add_proxy(
-            session,
-            method,
-            host,
-            port,
-            secure,
-            access_token,
-            password,
-            self.url
-        )
+        self._session = proxy.session
+        self.add_proxy(proxy.copy_with_route(self.url))
 
     def add_proxy(self,
-                  session,
-                  method,
-                  host,
-                  port,
-                  secure,
-                  access_token,
-                  password,
-                  route):
-        self.proxies.add(ProxyData(
-            session,
-            method,
-            host,
-            port,
-            secure,
-            access_token,
-            password,
-            route
-        ))
+                  proxy):
+        """Adds a proxy to the set."""
+        self.proxies.add(proxy)
 
     async def perform_proxy(self, request, **kwargs):
+        """Proxies the request to the remote instance."""
         route = request.url.path
         exact_match_proxies = [proxy for proxy in self.proxies if
                                proxy.is_exact_match(self._method, route)]
         if len(exact_match_proxies) != 0:
-            _LOGGER.warning("Found %s proxies for %s" % (str(exact_match_proxies), route))
-            results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in exact_match_proxies])
+            _LOGGER.warning("Found %s proxies for %s",
+                            str(exact_match_proxies),
+                            route)
+            results = await asyncio.gather(
+                *[proxy.perform_proxy(request) for proxy in exact_match_proxies])
         else:
-            _LOGGER.warning("Using %s proxies for %s" % (str(self.proxies), route))
-            results = await asyncio.gather(*[proxy.perform_proxy(request) for proxy in self.proxies])
+            _LOGGER.warning("Using %s proxies for %s",
+                            str(self.proxies),
+                            route)
+            results = await asyncio.gather(
+                *[proxy.perform_proxy(request) for proxy in self.proxies])
 
         for result in results:
             if result[ATTR_STATUS] == 200:
@@ -680,63 +682,56 @@ class AbstractRemoteApiProxy(HomeAssistantView):
 
 
 class GetRemoteApiProxy(AbstractRemoteApiProxy):
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+    """API proxy GET requests."""
 
     async def get(self, request, **kwargs):
+        """Perform proxy."""
         return await self.perform_proxy(request, **kwargs)
 
 
 class PostRemoteApiProxy(AbstractRemoteApiProxy):
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+    """API proxy POST requests."""
 
     async def post(self, request, **kwargs):
+        """Perform proxy."""
         return await self.perform_proxy(request, **kwargs)
 
 
 class PutRemoteApiProxy(AbstractRemoteApiProxy):
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+    """API proxy PUT requests."""
 
     async def put(self, request, **kwargs):
+        """Perform proxy."""
         return await self.perform_proxy(request, **kwargs)
 
 
 class DeleteRemoteApiProxy(AbstractRemoteApiProxy):
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+    """API proxy DELETE requests."""
 
     async def delete(self, request, **kwargs):
+        """Perform proxy."""
         return await self.perform_proxy(request, **kwargs)
 
 
 class PatchRemoteApiProxy(AbstractRemoteApiProxy):
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+    """API proxy PATCH requests."""
 
     async def delete(self, request, **kwargs):
+        """Perform proxy."""
         return await self.perform_proxy(request, **kwargs)
 
 
 class HeadRemoteApiProxy(AbstractRemoteApiProxy):
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+    """API proxy HEAD requests."""
 
     async def head(self, request, **kwargs):
+        """Perform proxy."""
         return await self.perform_proxy(request, **kwargs)
 
 
 class OptionsRemoteApiProxy(AbstractRemoteApiProxy):
-
-    def __init__(self, hass, session, host, port, secure, access_token, password, route, method):
-        super().__init__(hass, session, host, port, secure, access_token, password, route, method)
+    """API proxy OPTIONS requests."""
 
     async def options(self, request, **kwargs):
+        """Perform proxy."""
         return await self.perform_proxy(request, **kwargs)
